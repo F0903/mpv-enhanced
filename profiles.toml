@@ -1,0 +1,18 @@
+schema_version = 1
+
+[profiles.core]
+description = "mpv and the enhanced portable configuration, without Python or AI dependencies"
+components = ["sevenzip", "mpv", "portable-config"]
+platforms = ["windows-x86_64"]
+
+[profiles.rife-cuda]
+description = "Core plus VapourSynth and CUDA-backed RIFE interpolation"
+extends = "core"
+components = ["uv", "rife-runtime", "rife-model-4-25-lite"]
+platforms = ["windows-x86_64"]
+
+[profiles.rife-tensorrt]
+description = "RIFE CUDA plus TensorRT acceleration; engines are compiled on first use"
+extends = "core"
+components = ["uv", "rife-tensorrt", "rife-model-4-25-lite"]
+platforms = ["windows-x86_64"]

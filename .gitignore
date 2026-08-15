@@ -1,10 +1,29 @@
-# Ignore everything except the portable_config directory, install script and gitignore file
+# Python and uv environments
+__pycache__/
+*.py[cod]
+.venv/
+.uv-cache/
 
-*
-!*/
-!portable_config/**/*
-portable_config/cache
-!install-mpv-enhanced.ps1
-!.gitignore
+# Build and release output
+build/
+dist/
+*.egg-info/
 
-__pycache__
+# Installer runtime and download cache
+.mpv-enhanced-cache/
+runtime/python/
+runtime/controller-python/
+runtime/**/.venv/
+install_vs.ps1
+7z.exe
+mpv-*.7z
+
+# mpv runtime state
+portable_config/cache/
+portable_config/watch_later/
+portable_config/*.log
+
+# User-owned overrides. The installer creates these from the tracked examples.
+portable_config/mpv-local.conf
+portable_config/rife_config_local.py
+portable_config/rife_profile.py

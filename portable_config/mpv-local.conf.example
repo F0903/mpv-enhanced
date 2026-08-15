@@ -1,0 +1,4 @@
+# Local mpv overrides
+#
+# The installer copies this file to mpv-local.conf on first install and then
+# leaves that file untouched. Add machine- or display-specific settings there.

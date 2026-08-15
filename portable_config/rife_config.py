@@ -14,7 +14,7 @@ from vs_script.expensive_clip_mode import ExpensiveClipMode
 # RIFE Model Settings
 # =============================================================================
 
-# The RIFE model to use. Recommended ones are 4.26, 4.25 or 4.25.lite
+# The installer currently provides the hash-pinned 4.25-lite model.
 rife_model = "4.25.lite"
 
 # Interpolation scale
@@ -76,7 +76,7 @@ gpu_format = vs.RGBH
 
 # Uses Nvidia TensorRT framework which is faster.
 # It also takes a million years to build an RT engine for each resolution and config, but it is much faster than regular.
-tensorrt = True
+tensorrt = False
 
 # Enable for TensorRT debug logging
 tensorrt_debug = False
@@ -109,3 +109,20 @@ tensorrt_max_shape = [
 
 # Log file path. Set to None for no log, or to an output stream to a log file
 log = None #open("./rife_log.txt", "w")
+
+
+# The installer owns rife_profile.py and updates it when profiles change.
+try:
+    from rife_profile import *  # type: ignore[import-not-found]  # noqa: F403
+except ModuleNotFoundError as error:
+    if error.name != "rife_profile":
+        raise
+
+
+# Keep personal settings in rife_config_local.py. It is imported last so user
+# choices take precedence over both defaults and the selected profile.
+try:
+    from rife_config_local import *  # type: ignore[import-not-found]  # noqa: F403
+except ModuleNotFoundError as error:
+    if error.name != "rife_config_local":
+        raise

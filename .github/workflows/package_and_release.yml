@@ -1,32 +1,312 @@
-#NOTE: this doesn't currently work, due to githubs 2GB restriction on files.
-name: Install and Upload Release
+name: Build and publish release
 
 on:
-  #schedule:
-  #  - cron: "0, 0, 1, *, *"
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to publish (for example v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  windows-x86_64:
+    name: Windows x86-64 release
     runs-on: windows-latest
+    timeout-minutes: 90
+
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      PYTHONUTF8: "1"
+      UV_NO_PROGRESS: "1"
+      UV_VERSION: "0.12.5"
+      UV_ARCHIVE_URL: "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-x86_64-pc-windows-msvc.zip"
+      UV_ARCHIVE_SHA256: "4c4d49d8738847d9b71ba319e49a5688c93eac0fe6204b1df24e98528dddf39a"
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Get Date
-      id: get-date
-      run: |
-        "DATE=$('${{github.event.repository.updated_at}}'.Split("T")[0])" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-        Write-Host ${{ steps.get-date.outputs.DATE }}
-    - name: Install
-      run: "& ./install.ps1"
-    - name: Zip
-      run: ./7z.exe a mpv-rife.7z ./
-    - name: Package & Upload
-      uses: ncipollo/release-action@v1.14.0
-      with:
-        name: "mpv-${{ steps.get-date.outputs.DATE }}"
-        tag: ${{ steps.get-date.outputs.DATE }}
-        artifacts: "mpv-rife.7z"
-        makeLatest: true
-        omitBody: true
-        skipIfReleaseExists: true
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Resolve release version
+        id: release
+        env:
+          MANUAL_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $tag = if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+              $env:MANUAL_TAG
+          } else {
+              $env:GITHUB_REF_NAME
+          }
+          if ($tag -notmatch '^v(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)$') {
+              throw "Release tag '$tag' must look like v1.2.3 or v1.2.3-rc.1"
+          }
+          $headCommit = (& git rev-parse HEAD).Trim()
+          $tagCommit = (& git rev-list -n 1 $tag).Trim()
+          if ($headCommit -ne $tagCommit) {
+              throw "Checked-out commit $headCommit does not match $tag ($tagCommit)"
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$($Matches.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "commit=$headCommit" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "approval=$tag@$headCommit" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Install pinned uv
+        id: uv
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $archive = Join-Path $env:RUNNER_TEMP "uv-$env:UV_VERSION-windows-x86_64.zip"
+          $directory = Join-Path $env:RUNNER_TEMP "uv-$env:UV_VERSION-windows-x86_64"
+          Invoke-WebRequest -Uri $env:UV_ARCHIVE_URL -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:UV_ARCHIVE_SHA256) {
+              throw "uv archive checksum mismatch: expected $env:UV_ARCHIVE_SHA256, got $actual"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $directory
+          $matches = @(Get-ChildItem -LiteralPath $directory -Recurse -File -Filter uv.exe)
+          if ($matches.Count -ne 1) {
+              throw "Expected exactly one uv.exe in the pinned archive, found $($matches.Count)"
+          }
+          $uv = $matches[0]
+          $reported = (& $uv.FullName --version).Trim()
+          $expectedVersion = [regex]::Escape($env:UV_VERSION)
+          if ($reported -notmatch "^uv $expectedVersion(?:\s|$)") {
+              throw "Pinned uv reported an unexpected version: $reported"
+          }
+          $uv.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          "path=$($uv.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Validate locks and run unit tests
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          uv lock --check --project .
+          uv lock --check --project runtime/rife
+          uv sync --locked
+          uv run --locked ruff check .
+          uv run --locked ruff format --check .
+          uv run --locked python -m unittest discover -s tests -v
+
+      - name: Prepare release manifests
+        id: paths
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $work = Join-Path $env:RUNNER_TEMP "mpv-enhanced-release-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          uv run --locked python release/build_release.py prepare `
+              --repo-root $env:GITHUB_WORKSPACE `
+              --work-dir $work `
+              --version $env:RELEASE_VERSION
+          "work_dir=$work" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Assemble verified core profile
+        env:
+          WORK_DIR: ${{ steps.paths.outputs.work_dir }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          uv run --locked mpv-enhanced install `
+              --deps (Join-Path $env:WORK_DIR "manifests/deps.lock.toml") `
+              --profiles (Join-Path $env:WORK_DIR "manifests/profiles.toml") `
+              --source-root $env:GITHUB_WORKSPACE `
+              --platform windows-x86_64 `
+              --profile core `
+              --install-dir (Join-Path $env:WORK_DIR "assembled-core") `
+              --cache-dir (Join-Path $env:WORK_DIR "artifact-cache") `
+              --yes
+          & (Join-Path $env:WORK_DIR "assembled-core/mpv.exe") --version
+
+      - name: Stage direct and bootstrap distributions
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          WORK_DIR: ${{ steps.paths.outputs.work_dir }}
+          PINNED_UV: ${{ steps.uv.outputs.path }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          uv run --locked python release/build_release.py stage `
+              --repo-root $env:GITHUB_WORKSPACE `
+              --work-dir $env:WORK_DIR `
+              --core-dir (Join-Path $env:WORK_DIR "assembled-core") `
+              --uv-executable $env:PINNED_UV `
+              --version $env:RELEASE_VERSION
+
+      - name: Populate relocatable controller runtime
+        env:
+          WORK_DIR: ${{ steps.paths.outputs.work_dir }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $bootstrap = Join-Path $env:WORK_DIR "bootstrap"
+          $uv = Join-Path $bootstrap "uv.exe"
+          $env:UV_PYTHON_INSTALL_DIR = Join-Path $bootstrap "runtime/controller-python"
+          $env:UV_PROJECT_ENVIRONMENT = Join-Path $bootstrap ".venv"
+          $env:UV_CACHE_DIR = Join-Path $bootstrap ".uv-cache"
+          $env:UV_PYTHON_NO_REGISTRY = "1"
+          $env:UV_PYTHON_PREFERENCE = "only-managed"
+
+          & $uv python install 3.12.13
+          & $uv venv $env:UV_PROJECT_ENVIRONMENT --python 3.12.13 --relocatable
+          & $uv sync --project $bootstrap --locked --no-dev --no-editable
+
+          $env:UV_OFFLINE = "1"
+          & (Join-Path $bootstrap "install.cmd") list-profiles --platform windows-x86_64
+          Remove-Item Env:UV_OFFLINE
+
+      - name: Create release archives and checksums
+        id: artifacts
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          WORK_DIR: ${{ steps.paths.outputs.work_dir }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $output = Join-Path $env:WORK_DIR "artifacts"
+          uv run --locked python release/build_release.py finalize `
+              --work-dir $env:WORK_DIR `
+              --output-dir $output `
+              --version $env:RELEASE_VERSION
+          "directory=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Get-Content -LiteralPath (Join-Path $output "SHA256SUMS")
+
+      - name: Smoke-test release archives fully offline
+        env:
+          ARTIFACT_DIR: ${{ steps.artifacts.outputs.directory }}
+          WORK_DIR: ${{ steps.paths.outputs.work_dir }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $bootstrapArchives = @(Get-ChildItem -LiteralPath $env:ARTIFACT_DIR -File -Filter "mpv-enhanced-bootstrap-*.zip")
+          $coreArchives = @(Get-ChildItem -LiteralPath $env:ARTIFACT_DIR -File -Filter "mpv-enhanced-core-*.zip")
+          if ($bootstrapArchives.Count -ne 1 -or $coreArchives.Count -ne 1) {
+              throw "Expected one bootstrap and one core archive"
+          }
+          $coreExtracted = Join-Path $env:WORK_DIR "smoke-direct-core"
+          $extracted = Join-Path $env:WORK_DIR "smoke-bootstrap"
+          $installed = Join-Path $env:WORK_DIR "smoke-installed-core"
+          Expand-Archive -LiteralPath $coreArchives[0].FullName -DestinationPath $coreExtracted
+          Expand-Archive -LiteralPath $bootstrapArchives[0].FullName -DestinationPath $extracted
+
+          foreach ($tree in @($coreExtracted, $extracted)) {
+              $forbidden = @(Get-ChildItem -LiteralPath $tree -Recurse -Force | Where-Object {
+                  ($_.PSIsContainer -and @("__pycache__", ".uv-cache") -icontains $_.Name) -or
+                  (-not $_.PSIsContainer -and $_.Extension -ieq ".pyc")
+              })
+              if ($forbidden.Count) {
+                  throw "Release archive contains generated Python bytecode: $($forbidden[0].FullName)"
+              }
+          }
+
+          & (Join-Path $coreExtracted "mpv.exe") --version
+          foreach ($required in @("LICENSES", "locks/deps.lock.toml", "locks/profiles.toml")) {
+              if (-not (Test-Path -LiteralPath (Join-Path $coreExtracted $required))) {
+                  throw "Direct core archive is missing $required"
+              }
+          }
+
+          $env:UV_OFFLINE = "1"
+          & (Join-Path $extracted "install.cmd") list-profiles --platform windows-x86_64
+          & (Join-Path $extracted "install.cmd") install `
+              --profile core `
+              --platform windows-x86_64 `
+              --install-dir $installed `
+              --offline `
+              --yes
+          & (Join-Path $extracted "install.cmd") doctor `
+              --profile core `
+              --platform windows-x86_64 `
+              --install-dir $installed
+          & (Join-Path $installed "mpv.exe") --version
+
+          $expected = (Get-FileHash -LiteralPath (Join-Path $env:WORK_DIR "core-package/mpv.exe") -Algorithm SHA256).Hash
+          $direct = (Get-FileHash -LiteralPath (Join-Path $coreExtracted "mpv.exe") -Algorithm SHA256).Hash
+          $actual = (Get-FileHash -LiteralPath (Join-Path $installed "mpv.exe") -Algorithm SHA256).Hash
+          if ($direct -ne $expected -or $actual -ne $expected) {
+              throw "A release archive contains an unexpected mpv.exe"
+          }
+
+      - name: Upload audited workflow artifacts
+        if: vars.BINARY_REDISTRIBUTION_APPROVED_RELEASE == steps.release.outputs.approval
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mpv-enhanced-windows-x86_64-${{ steps.release.outputs.tag }}
+          path: |
+            ${{ steps.artifacts.outputs.directory }}/*.zip
+            ${{ steps.artifacts.outputs.directory }}/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: vars.BINARY_REDISTRIBUTION_APPROVED_RELEASE == steps.release.outputs.approval
+        env:
+          ARTIFACT_DIR: ${{ steps.artifacts.outputs.directory }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $assets = @(
+              (Get-ChildItem -LiteralPath $env:ARTIFACT_DIR -File -Filter "*.zip" | Sort-Object Name | ForEach-Object FullName)
+              (Join-Path $env:ARTIFACT_DIR "SHA256SUMS")
+          )
+          if ($assets.Count -ne 3) {
+              throw "Expected two ZIP files and SHA256SUMS, found $($assets.Count) assets"
+          }
+
+          $PSNativeCommandUseErrorActionPreference = $false
+          & gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($releaseExists) {
+              throw "Release $env:RELEASE_TAG already exists; refusing to replace immutable assets"
+          }
+          & gh release create $env:RELEASE_TAG @assets `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:RELEASE_COMMIT `
+              --verify-tag `
+              --title "mpv-enhanced $env:RELEASE_TAG" `
+              --generate-notes
+
+      - name: Explain skipped binary distribution
+        if: vars.BINARY_REDISTRIBUTION_APPROVED_RELEASE != steps.release.outputs.approval
+        env:
+          APPROVED_RELEASE: ${{ vars.BINARY_REDISTRIBUTION_APPROVED_RELEASE }}
+          EXPECTED_RELEASE: ${{ steps.release.outputs.approval }}
+        run: |
+          $approved = if ([string]::IsNullOrWhiteSpace($env:APPROVED_RELEASE)) {
+              "<unset>"
+          } else {
+              $env:APPROVED_RELEASE
+          }
+          @'
+          ### Binary distribution skipped
+
+          The archives were built, verified, and smoke-tested fully offline, but
+          were not uploaded as Actions artifacts or published as a GitHub
+          Release. Binary distribution requires the repository variable
+          BINARY_REDISTRIBUTION_APPROVED_RELEASE to exactly match the audited
+          tag and commit.
+          '@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "Required approval: $env:EXPECTED_RELEASE" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "Configured approval: $approved" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

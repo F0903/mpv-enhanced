@@ -1,0 +1,40 @@
+[project]
+name = "mpv-enhanced-rife-runtime"
+version = "0.1.0"
+description = "Locked VapourSynth and RIFE runtime for mpv-enhanced"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.12.1",
+    "vapoursynth==77",
+    "vsrife==5.7.0",
+]
+
+[project.optional-dependencies]
+tensorrt = [
+    "tensorrt==10.16.1.11",
+    "torch-tensorrt==2.12.1",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+required-environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torch-tensorrt = { index = "pytorch-cu130" }
+tensorrt = { index = "nvidia" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true

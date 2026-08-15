@@ -101,7 +101,9 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
         trt_opt_shape=config.tensorrt_opt_shape,
         trt_max_shape=config.tensorrt_max_shape,
         trt_debug=config.tensorrt_debug,
-        auto_download=True,  # Downloads the model on first run.
+        # The installer places the hash-verified model in the vsrife package.
+        # Keeping this disabled prevents mutable network access during playback.
+        auto_download=False,
     )
     clip = core.resize.Lanczos(
         clip,

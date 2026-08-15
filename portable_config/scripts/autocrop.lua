@@ -1,3 +1,6 @@
+-- Derived from mpv's TOOLS/lua/autocrop.lua.
+-- SPDX-License-Identifier: GPL-2.0-or-later
+
 --[[
 This script uses the lavfi cropdetect filter and the video-crop property to
 automatically crop the currently playing video with appropriate parameters.

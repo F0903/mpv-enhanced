@@ -1,0 +1,10 @@
+"""Local RIFE overrides preserved across mpv-enhanced upgrades.
+
+Copy this file to ``rife_config_local.py`` and uncomment only the settings you
+want to override. Names defined here replace the defaults from rife_config.py.
+"""
+
+# rife_model = "4.25.lite"
+# gpu_index = 0
+# tensorrt = False
+# tensorrt_optimization = 3

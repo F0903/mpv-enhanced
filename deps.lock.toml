@@ -1,0 +1,90 @@
+schema_version = 1
+
+[release]
+version = "0.1.0-dev"
+
+[metadata]
+target = "windows-x86_64"
+hash_algorithm = "sha256"
+
+[components.sevenzip]
+kind = "download"
+version = "26.02"
+description = "Reduced standalone 7-Zip console extractor"
+source = "https://github.com/ip7z/7zip"
+
+[components.sevenzip.artifacts.windows-x86_64]
+url = "https://github.com/ip7z/7zip/releases/download/26.02/7zr.exe"
+sha256 = "56b8cc9f4971cef253644fafe54063ed7fdca551d4dee0f8c6baa81b855acd72"
+size = 602112
+archive = "none"
+strip_components = 0
+destination = "tools/7zr.exe"
+
+[components.mpv]
+kind = "download"
+version = "20260814-git-7b8915bc1d"
+description = "Shinchiro mpv Windows x86-64 baseline build"
+source = "https://github.com/shinchiro/mpv-winbuild-cmake"
+
+[components.mpv.artifacts.windows-x86_64]
+url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260814/mpv-x86_64-20260814-git-7b8915bc1d.7z"
+sha256 = "1bf3b029da2c98e605e00e85f21ee3142f22a1dcc4ceb5c827b5c51e36e390f9"
+size = 33583248
+archive = "7z"
+strip_components = 0
+destination = "."
+exclude = ["installer", "updater.bat", "mpv-register.bat", "mpv-unregister.bat"]
+
+[components.portable-config]
+kind = "local"
+version = "repository"
+description = "mpv-enhanced configuration and bundled scripts"
+path = "portable_config"
+destination = "portable_config"
+
+[components.uv]
+kind = "download"
+version = "0.12.5"
+description = "Standalone uv bootstrap and runtime package manager"
+source = "https://github.com/astral-sh/uv"
+
+[components.uv.artifacts.windows-x86_64]
+url = "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-x86_64-pc-windows-msvc.zip"
+sha256 = "4c4d49d8738847d9b71ba319e49a5688c93eac0fe6204b1df24e98528dddf39a"
+size = 20329591
+archive = "zip"
+strip_components = 0
+destination = "runtime/uv"
+
+[components.rife-runtime]
+kind = "uv-runtime"
+version = "locked"
+description = "VapourSynth, vsrife, and CUDA PyTorch environment"
+python_version = "3.12.13"
+project = "runtime/rife"
+lockfile = "runtime/rife/uv.lock"
+extras = []
+
+[components.rife-tensorrt]
+kind = "uv-runtime"
+version = "locked"
+description = "TensorRT extension for the shared RIFE environment"
+python_version = "3.12.13"
+project = "runtime/rife"
+lockfile = "runtime/rife/uv.lock"
+extras = ["tensorrt"]
+
+[components.rife-model-4-25-lite]
+kind = "download"
+version = "4.25.lite"
+description = "RIFE 4.25-lite interpolation model"
+source = "https://github.com/HolyWu/vs-rife"
+
+[components.rife-model-4-25-lite.artifacts.windows-x86_64]
+url = "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.25.lite.pkl"
+sha256 = "81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1"
+size = 24467405
+archive = "none"
+strip_components = 0
+destination = "runtime/venv/Lib/site-packages/vsrife/models/flownet_v4.25.lite.pkl"

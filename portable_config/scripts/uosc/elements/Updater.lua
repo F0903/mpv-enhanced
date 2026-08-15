@@ -94,125 +94,16 @@ function Updater:open_changelog()
 end
 
 function Updater:check()
-	if self.state == 'pending' then return end
-	self.state = 'pending'
-	self.title = t('Checking for updates') .. '...'
-
-	local url = 'https://api.github.com/repos/tomasklaen/uosc/releases/latest'
-	local headers = utils.format_json({
-		Accept = 'application/vnd.github+json',
-	})
-	local args = {'http-get', '--headers', headers, url}
-
-	self:append_output('Fetching: ' .. url)
-
-	call_ziggy_async(args, function(error, response)
-		if error then
-			self:display_error(error)
-			return
-		end
-
-		release = utils.parse_json(type(response.body) == 'string' and response.body or '')
-		if response.status == 200 and type(release) == 'table' and type(release.tag_name) == 'string' then
-			self.update_available = config.version ~= release.tag_name
-			self:append_output('Response: 200 OK')
-			self:append_output('Current version: ' .. config.version)
-			self:append_output('Latest version: ' .. release.tag_name)
-			if self.update_available then
-				self.state = 'upgrade'
-				self.title = t('Update available')
-				self.buttons = {self.update_button, self.changelog_button, self.close_button}
-				self.selected_button_index = 1
-			else
-				self.state = 'done'
-				self.title = t('Up to date')
-			end
-		else
-			self:display_error('Response couldn\'t be parsed, is invalid, or not-OK status code.\nStatus: ' ..
-				response.status .. '\nBody: ' .. response.body)
-		end
-
-		request_render()
-	end)
+	self:update()
 end
 
 function Updater:update()
-	if self.state == 'pending' then return end
-	self.state = 'pending'
-	self.title = t('Updating uosc')
+	self.state = 'done'
+	self.title = 'uosc updates are managed by mpv-enhanced releases'
 	self.output = nil
+	self.buttons = {self.quit_button, self.close_button}
+	self.selected_button_index = 1
 	request_render()
-
-	local config_dir = mp.command_native({'expand-path', '~~/'})
-
-	local function handle_result(success, result, error)
-		if success and result and result.status == 0 then
-			self.state = 'done'
-			self.title = t('uosc has been installed. Restart mpv for it to take effect.')
-			self.buttons = {self.quit_button, self.close_button}
-			self.selected_button_index = 1
-		else
-			self.state = 'error'
-			self.title = t('An error has occurred.') .. ' ' .. t('See above for clues.')
-		end
-
-		local output = (result.stdout or '') .. '\n' .. (error or result.stderr or '')
-		if state.platform == 'darwin' then
-			output =
-				'Self-updater is known not to work on MacOS.\nIf you know about a solution, please make an issue and share it with us!.\n' ..
-				output
-		end
-		self:append_output(output)
-	end
-
-	local function update(args)
-		local env = utils.get_env_list()
-		env[#env + 1] = 'MPV_CONFIG_DIR=' .. config_dir
-
-		mp.command_native_async({
-			name = 'subprocess',
-			capture_stderr = true,
-			capture_stdout = true,
-			playback_only = false,
-			args = args,
-			env = env,
-		}, handle_result)
-	end
-
-	if state.platform == 'windows' then
-		local url = 'https://raw.githubusercontent.com/tomasklaen/uosc/HEAD/installers/windows.ps1'
-		update({'powershell', '-NoProfile', '-Command', 'irm ' .. url .. ' | iex'})
-	else
-		-- Detect missing dependencies. We can't just let the process run and
-		-- report an error, as on snap packages there's no error. Everything
-		-- either exits with 0, or no helpful output/error message.
-		local missing = {}
-
-		for _, name in ipairs({'curl', 'unzip'}) do
-			local result = mp.command_native({
-				name = 'subprocess',
-				capture_stdout = true,
-				playback_only = false,
-				args = {'which', name},
-			})
-			local path = cleanup_output(result and result.stdout or '')
-			if path == '' then
-				missing[#missing + 1] = name
-			end
-		end
-
-		if #missing > 0 then
-			local stderr = 'Missing dependencies: ' .. table.concat(missing, ', ')
-			if config_dir:match('/snap/') then
-				stderr = stderr ..
-					'\nThis is a known error for mpv snap packages.\nYou can still update uosc by entering the Linux install command from uosc\'s readme into your terminal, it just can\'t be done this way.\nIf you know about a solution, please make an issue and share it with us!'
-			end
-			handle_result(false, {stderr = stderr})
-		else
-			local url = 'https://raw.githubusercontent.com/tomasklaen/uosc/HEAD/installers/unix.sh'
-			update({'/bin/bash', '-c', 'source <(curl -fsSL ' .. url .. ')'})
-		end
-	end
 end
 
 function Updater:render()

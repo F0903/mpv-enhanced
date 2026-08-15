@@ -1,0 +1,35 @@
+[build-system]
+requires = ["uv_build>=0.12.4,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "mpv-enhanced-installer"
+version = "0.1.0"
+description = "Verified, lockfile-driven installer for mpv-enhanced"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = ["ruff==0.16.3"]
+
+[project.scripts]
+mpv-enhanced = "mpv_enhanced_installer.cli:main"
+
+[project.urls]
+Repository = "https://github.com/F0903/mpv-rife"
+
+[tool.uv]
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+required-environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+[tool.uv.build-backend]
+module-name = "mpv_enhanced_installer"
+module-root = "src"
+
+[tool.ruff]
+extend-exclude = ["portable_config"]
