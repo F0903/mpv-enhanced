@@ -149,7 +149,14 @@ if container_fps < config.disable_fps_threshold:  # type: ignore[name-defined]
     )
 
     clip = video_in  # type: ignore[name-defined]
-    clip = interpolate(clip)
+    if config.interpolator == "rtx":
+        from vs_script.rtx import interpolate as interpolate_rtx
+
+        source_fps = Fraction(container_fps).limit_denominator(1001)  # type: ignore[name-defined]
+        multiplier = config.target_mode.get_fps_fraction(source_fps).limit_denominator(100)
+        clip = interpolate_rtx(clip, multiplier, source_fps * multiplier, config.rtx_mode)
+    else:
+        clip = interpolate(clip)
     print_log(f"Final clip: {clip}")
     clip.set_output()
 

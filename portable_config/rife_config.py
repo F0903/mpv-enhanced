@@ -11,11 +11,23 @@ from vs_script.expensive_clip_mode import ExpensiveClipMode
 
 
 # =============================================================================
+# Interpolator
+# =============================================================================
+
+# "rtx" (RTX Video Frame Generation) or "rife". The installer sets this for the
+# installed profile in the generated rife_profile.py.
+interpolator = "rife"
+
+# RTX Video Frame Generation quality: "LOW", "MEDIUM" or "HIGH".
+rtx_mode = "HIGH"
+
+
+# =============================================================================
 # RIFE Model Settings
 # =============================================================================
 
-# The installer currently provides the hash-pinned 4.25-lite model.
-rife_model = "4.25.lite"
+# rife_model is set by the installer in the generated rife_profile.py. The RIFE
+# profiles also install "4.25", which can be selected in rife_config_local.py.
 
 # Interpolation scale
 scale = 1
