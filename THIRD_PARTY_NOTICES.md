@@ -20,14 +20,15 @@ zip. This is an engineering summary, not legal advice.
 These are not redistributed by mpv-enhanced. The installer fetches each locked
 artifact from its publisher, verifies it, and installs it for the user.
 
-| Component | Pinned version | Publisher and terms |
+| Component | Pinned in | Publisher and terms |
 | --- | --- | --- |
-| mpv (Windows, macOS) | `0.42.0` official builds, SHA-256 pinned in `deps.lock.toml` | [mpv release](https://github.com/mpv-player/mpv/releases/tag/v0.42.0); GPL. Source is published with the same release. On Linux the distribution's mpv is used instead. |
-| uv | `0.12.5`, SHA-256 pinned in `install.cmd` / `install.sh` | [Astral release](https://github.com/astral-sh/uv/releases/tag/0.12.5); Apache-2.0 or MIT. |
-| CPython (installer and RIFE runtime) | `3.12.13` | Downloaded by uv from python-build-standalone; PSF and bundled-component terms. |
-| VapourSynth | `77` | [PyPI](https://pypi.org/project/VapourSynth/77/); LGPL-2.1-or-later. |
-| vs-rife | `5.7.0` | [PyPI](https://pypi.org/project/vsrife/5.7.0/); MIT. |
-| RIFE 4.25-lite model | `flownet_v4.25.lite.pkl`, SHA-256 `81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1` | [HolyWu model release](https://github.com/HolyWu/vs-rife/releases/tag/model); Practical-RIFE places its trained models under [MIT](https://github.com/hzwer/Practical-RIFE#trained-model). |
-| PyTorch CUDA | `2.12.1+cu130` | BSD-3-Clause; the wheels include NVIDIA CUDA libraries under the [CUDA EULA](https://docs.nvidia.com/cuda/eula/index.html). |
-| Torch-TensorRT | `2.12.1+cu130` | BSD-style license; it does not replace the terms of the proprietary TensorRT dependencies. |
-| TensorRT | `10.16.1.11` | Proprietary; [TensorRT SLA](https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html). The installer requires explicit acceptance before downloading it; `--yes` is not acceptance. |
+| mpv (Windows, macOS) | `manifest.toml` | [mpv releases](https://github.com/mpv-player/mpv/releases); GPL. Source is published with each release. On Linux the distribution's mpv is used instead. |
+| uv | `uv.pin` | [Astral releases](https://github.com/astral-sh/uv/releases); Apache-2.0 or MIT. |
+| CPython (installer and RIFE runtime) | `.python-version` | Downloaded by uv from python-build-standalone; PSF and bundled-component terms. |
+| VapourSynth | `runtime/rife/uv.lock` | [PyPI](https://pypi.org/project/VapourSynth/); LGPL-2.1-or-later. |
+| vs-rife | `runtime/rife/uv.lock` | [PyPI](https://pypi.org/project/vsrife/); MIT. |
+| RIFE models | `manifest.toml` | [HolyWu model release](https://github.com/HolyWu/vs-rife/releases/tag/model); Practical-RIFE places its trained models under [MIT](https://github.com/hzwer/Practical-RIFE#trained-model). |
+| PyTorch CUDA | `runtime/rife/uv.lock` | BSD-3-Clause; the wheels include NVIDIA CUDA libraries under the [CUDA EULA](https://docs.nvidia.com/cuda/eula/index.html). |
+| Torch-TensorRT | `runtime/rife/uv.lock` | BSD-style license; it does not replace the terms of the proprietary TensorRT dependencies. |
+| NVIDIA Video Effects SDK (`nvidia-vfx`) | `runtime/rife/uv.lock` | Proprietary; [NVIDIA Software License Agreement](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/). Used by the `rtx-*` profiles. Each user downloads it from NVIDIA after explicit acceptance; `--yes` is not acceptance. |
+| TensorRT | `runtime/rife/uv.lock` | Proprietary; [TensorRT SLA](https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html). The installer requires explicit acceptance before downloading it; `--yes` is not acceptance. |
