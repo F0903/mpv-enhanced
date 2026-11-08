@@ -1,3 +1,5 @@
+-- Modified by mpv-enhanced on 2026-08-16: disabled the mutable self-updater.
+-- SPDX-License-Identifier: LGPL-2.1-or-later
 local Element = require('elements/Element')
 local dots = {'.', '..', '...'}
 

@@ -78,9 +78,6 @@ gpu_format = vs.RGBH
 # It also takes a million years to build an RT engine for each resolution and config, but it is much faster than regular.
 tensorrt = False
 
-# Enable for TensorRT debug logging
-tensorrt_debug = False
-
 # 0 is min - 5 is max. This will increase the time it takes to build the RT engine
 tensorrt_optimization = 3
 

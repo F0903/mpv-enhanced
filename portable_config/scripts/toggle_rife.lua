@@ -4,8 +4,8 @@ local rife_enabled = false
 
 function toggle_rife()
     if rife_enabled then
-        mp.command("disable-profile rife")
-        mp.command("vf remove @rife") -- We have to do manual cleanup. Thanks MPV
+        -- mpv cannot un-apply a profile, so remove the filter the profile added.
+        mp.command("vf remove @rife")
 
         mp.osd_message("RIFE Interpolation: OFF", 2)
     else

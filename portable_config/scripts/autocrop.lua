@@ -1,4 +1,6 @@
 -- Derived from mpv's TOOLS/lua/autocrop.lua.
+-- Modified by mpv-enhanced on 2026-08-16; includes automatic timing, crop
+-- controls, and configuration changes relative to mpv v0.41.0.
 -- SPDX-License-Identifier: GPL-2.0-or-later
 
 --[[

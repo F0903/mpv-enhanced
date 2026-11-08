@@ -26,7 +26,26 @@ def print_log(*values: object):
     print(*values, file=config.log)
     config.log.flush()  # Force flush to ensure output is written immediately
 
+def mark_scene_changes(clip: vs.VideoNode, threshold: float) -> vs.VideoNode:
+    """Set _SceneChangeNext like misc.SCDetect, using only core filters.
+
+    vsrife's own sc_threshold path needs the misc plugin, which VapourSynth no
+    longer ships; with the prop already set, rife() is called with sc_threshold=None.
+    """
+    gray = clip.resize.Bicubic(format=vs.GRAY8, matrix_s="709")
+    stats = core.std.PlaneStats(gray, gray[1:] + gray[-1])
+
+    def set_next(n: int, f: vs.VideoFrame) -> vs.VideoFrame:
+        fout = f.copy()
+        fout.props["_SceneChangeNext"] = int(f.props["PlaneStatsDiff"] > threshold)
+        return fout
+
+    marked = core.std.ModifyFrame(stats, stats, set_next)
+    return clip.std.CopyFrameProps(marked, "_SceneChangeNext")
+
+
 def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
+    os.makedirs(os.path.join(script_dir, "cache", "tensorrt"), exist_ok=True)
     original_size = (clip.width, clip.height)
     original_format = clip.format
 
@@ -84,6 +103,8 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
         transfer_in=config.output_transfer,
         primaries_in=config.output_primaries,
     )
+    if config.sc:
+        clip = mark_scene_changes(clip, config.sc_threshold)
     clip = rife(
         clip=clip,
         model=config.rife_model,
@@ -93,14 +114,15 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
         scale=config.scale,
         ensemble=config.ensemble,
         sc=config.sc,
-        sc_threshold=config.sc_threshold,
+        sc_threshold=None,
         trt=config.tensorrt,
         trt_optimization_level=config.tensorrt_optimization,
         trt_static_shape=config.tensorrt_static_shape,
         trt_min_shape=config.tensorrt_min_shape,
         trt_opt_shape=config.tensorrt_opt_shape,
         trt_max_shape=config.tensorrt_max_shape,
-        trt_debug=config.tensorrt_debug,
+        # Outside the runtime so engines survive reinstalls (the installer keeps cache/).
+        trt_cache_dir=os.path.join(script_dir, "cache", "tensorrt"),
         # The installer places the hash-verified model in the vsrife package.
         # Keeping this disabled prevents mutable network access during playback.
         auto_download=False,

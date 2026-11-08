@@ -3,6 +3,8 @@
 -- High-performance on-the-fly thumbnailer
 --
 -- Built for easy integration in third-party UIs.
+-- Reformatted by mpv-enhanced; no functional changes from upstream commit
+-- 9deb0733c4e36938cf90e42ddfb7a19a8b2f4641.
 
 --[[
 This Source Code Form is subject to the terms of the Mozilla Public
