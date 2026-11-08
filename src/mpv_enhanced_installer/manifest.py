@@ -14,7 +14,8 @@ from .errors import ManifestError, UnsupportedPlatformError
 from .platforms import PlatformInfo
 
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
-_ARCHIVES = frozenset({"zip", "7z", "none"})
+_ARCHIVES = frozenset({"zip", "zip+tar.gz", "none"})
+_VERSION = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
 
 
 def _table(value: object, label: str) -> Mapping[str, Any]:
@@ -91,6 +92,26 @@ class UvRuntime:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemProgram:
+    """A program the host must already provide, such as a distribution's mpv."""
+
+    command: str
+    min_version: tuple[int, ...]
+    check_args: tuple[str, ...] = ()
+    check_contains: str | None = None
+
+
+def parse_version(text: str) -> tuple[int, ...] | None:
+    """Return the first ``major.minor[.patch]`` found in ``text``."""
+    match = _VERSION.search(text)
+    return tuple(int(part or 0) for part in match.groups()) if match else None
+
+
+def _supports(platforms: tuple[str, ...], platform: PlatformInfo) -> bool:
+    return not platforms or any(key in platform.artifact_keys for key in platforms)
+
+
+@dataclass(frozen=True, slots=True)
 class Component:
     name: str
     version: str
@@ -99,6 +120,11 @@ class Component:
     path: str | None
     artifacts: Mapping[str, Artifact]
     runtime: UvRuntime | None = None
+    platforms: tuple[str, ...] = ()
+    system: SystemProgram | None = None
+
+    def supports(self, platform: PlatformInfo) -> bool:
+        return _supports(self.platforms, platform)
 
     def artifact_for(self, platform: PlatformInfo) -> Artifact:
         for key in platform.artifact_keys:
@@ -118,9 +144,7 @@ class Profile:
     platforms: tuple[str, ...]
 
     def supports(self, platform: PlatformInfo) -> bool:
-        return not self.platforms or any(
-            key in platform.artifact_keys for key in self.platforms
-        )
+        return _supports(self.platforms, platform)
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,19 +264,20 @@ class Manifest:
 
         visit(name, ())
         profile = self.profiles[name]
+        components = tuple(self.components[item] for item in ordered_names)
         if platform is not None:
             if not profile.supports(platform):
                 raise UnsupportedPlatformError(
                     f"profile {name!r} does not support {platform.key}"
                 )
-            for component_name in ordered_names:
-                component = self.components[component_name]
+            components = tuple(item for item in components if item.supports(platform))
+            for component in components:
                 if component.kind == "download":
                     component.artifact_for(platform)
         return ResolvedProfile(
             name=name,
             description=profile.description,
-            components=tuple(self.components[item] for item in ordered_names),
+            components=components,
         )
 
 
@@ -273,13 +298,17 @@ def _parse_component(name: str, data: Mapping[str, Any]) -> Component:
     kind = _string(
         data.get("kind"), f"components.{name}.kind", default="download"
     ).lower()
-    if kind not in {"download", "local", "uv-runtime"}:
+    if kind not in {"download", "local", "uv-runtime", "system"}:
         raise ManifestError(
-            f"components.{name}.kind must be 'download', 'local', or 'uv-runtime'"
+            f"components.{name}.kind must be 'download', 'local', 'uv-runtime', "
+            "or 'system'"
         )
     version = str(data.get("version", "local" if kind == "local" else "unknown"))
+    platforms = _platform_list(data.get("platforms"), f"components.{name}.platforms")
     if kind == "uv-runtime":
-        return _parse_runtime_component(name, version, data)
+        return _parse_runtime_component(name, version, data, platforms)
+    if kind == "system":
+        return _parse_system_component(name, data, platforms)
     destination = validate_relative_path(
         _string(data.get("destination"), f"components.{name}.destination", default="."),
         f"components.{name}.destination",
@@ -296,6 +325,7 @@ def _parse_component(name: str, data: Mapping[str, Any]) -> Component:
             destination=destination,
             path=source_path,
             artifacts=MappingProxyType({}),
+            platforms=platforms,
         )
 
     raw_artifacts = _table(data.get("artifacts"), f"components.{name}.artifacts")
@@ -378,13 +408,50 @@ def _parse_component(name: str, data: Mapping[str, Any]) -> Component:
         destination=destination,
         path=None,
         artifacts=MappingProxyType(artifacts),
+        platforms=platforms,
     )
+
+
+def _parse_system_component(
+    name: str,
+    data: Mapping[str, Any],
+    platforms: tuple[str, ...],
+) -> Component:
+    label = f"components.{name}"
+    min_version = parse_version(
+        _string(data.get("min_version"), f"{label}.min_version")
+    )
+    if min_version is None:
+        raise ManifestError(f"{label}.min_version must look like 1.2.3")
+    check_contains = data.get("check_contains")
+    if check_contains is not None:
+        check_contains = _string(check_contains, f"{label}.check_contains")
+    return Component(
+        name=name,
+        version="system",
+        kind="system",
+        destination=".",
+        path=None,
+        artifacts=MappingProxyType({}),
+        platforms=platforms,
+        system=SystemProgram(
+            command=_string(data.get("command"), f"{label}.command"),
+            min_version=min_version,
+            check_args=_string_list(data.get("check_args"), f"{label}.check_args"),
+            check_contains=check_contains,
+        ),
+    )
+
+
+def _platform_list(value: object, label: str) -> tuple[str, ...]:
+    return tuple(item.lower() for item in _string_list(value, label))
 
 
 def _parse_runtime_component(
     name: str,
     version: str,
     data: Mapping[str, Any],
+    platforms: tuple[str, ...],
 ) -> Component:
     project = validate_relative_path(
         _string(data.get("project"), f"components.{name}.project"),
@@ -431,6 +498,7 @@ def _parse_runtime_component(
         path=project,
         artifacts=MappingProxyType({}),
         runtime=runtime,
+        platforms=platforms,
     )
 
 
@@ -442,12 +510,7 @@ def _parse_profile(name: str, data: Mapping[str, Any]) -> Profile:
         ),
         components=_string_list(data.get("components"), f"profiles.{name}.components"),
         extends=_string_list(data.get("extends"), f"profiles.{name}.extends"),
-        platforms=tuple(
-            item.lower()
-            for item in _string_list(
-                data.get("platforms"), f"profiles.{name}.platforms"
-            )
-        ),
+        platforms=_platform_list(data.get("platforms"), f"profiles.{name}.platforms"),
     )
 
 

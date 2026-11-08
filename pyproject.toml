@@ -7,6 +7,8 @@ name = "mpv-enhanced-installer"
 version = "0.1.0"
 description = "Verified, lockfile-driven installer for mpv-enhanced"
 readme = "README.md"
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 dependencies = []
 
@@ -20,11 +22,19 @@ mpv-enhanced = "mpv_enhanced_installer.cli:main"
 Repository = "https://github.com/F0903/mpv-rife"
 
 [tool.uv]
+# Rebuild the (non-editable) installer when its source changes, e.g. after git pull.
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }]
 environments = [
     "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 required-environments = [
     "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 [tool.uv.build-backend]

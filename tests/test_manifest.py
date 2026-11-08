@@ -17,14 +17,7 @@ class RealManifestTests(unittest.TestCase):
 
         self.assertEqual(
             [component.name for component in resolved.components],
-            [
-                "sevenzip",
-                "mpv",
-                "portable-config",
-                "uv",
-                "rife-tensorrt",
-                "rife-model-4-25-lite",
-            ],
+            ["mpv", "portable-config", "rife-tensorrt", "rife-model-4-25-lite"],
         )
         runtime = manifest.components["rife-tensorrt"].runtime
         self.assertIsNotNone(runtime)
@@ -35,15 +28,40 @@ class RealManifestTests(unittest.TestCase):
         mpv_artifact = manifest.components["mpv"].artifact_for(
             PlatformInfo("windows", "x86_64")
         )
+        self.assertIn("/v0.42.0/", mpv_artifact.url)
+        self.assertIn("mpv-register.bat", mpv_artifact.exclude)
+
+    def test_linux_uses_system_mpv_and_checks_vapoursynth_for_rife(self) -> None:
+        manifest = Manifest.load(ROOT / "deps.lock.toml", ROOT / "profiles.toml")
+        linux = PlatformInfo("linux", "x86_64")
+        core = manifest.resolve_profile("core", linux)
         self.assertEqual(
-            mpv_artifact.exclude,
-            ("installer", "updater.bat", "mpv-register.bat", "mpv-unregister.bat"),
+            [item.name for item in core.components], ["system-mpv", "portable-config"]
         )
+        rife = manifest.resolve_profile("rife-cuda", linux)
+        check = manifest.components["system-mpv-vapoursynth"].system
+        assert check is not None
+        self.assertIn("system-mpv-vapoursynth", [c.name for c in rife.components])
+        self.assertEqual(check.min_version, (0, 42, 0))
+        self.assertEqual(check.check_contains, "vapoursynth")
+
+    def test_macos_installs_core_only(self) -> None:
+        manifest = Manifest.load(ROOT / "deps.lock.toml", ROOT / "profiles.toml")
+        mac = PlatformInfo("macos", "aarch64")
+        core = manifest.resolve_profile("core", mac)
+        self.assertEqual(
+            [item.name for item in core.components], ["mpv", "portable-config"]
+        )
+        self.assertEqual(
+            manifest.components["mpv"].artifact_for(mac).archive, "zip+tar.gz"
+        )
+        with self.assertRaises(UnsupportedPlatformError):
+            manifest.resolve_profile("rife-cuda", mac)
 
     def test_repository_profiles_reject_other_platforms(self) -> None:
         manifest = Manifest.load(ROOT / "deps.lock.toml", ROOT / "profiles.toml")
         with self.assertRaises(UnsupportedPlatformError):
-            manifest.resolve_profile("core", PlatformInfo("linux", "x86_64"))
+            manifest.resolve_profile("core", PlatformInfo("linux", "aarch64"))
 
 
 class ManifestValidationTests(unittest.TestCase):

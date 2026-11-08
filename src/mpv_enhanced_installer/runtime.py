@@ -126,12 +126,8 @@ class UvRuntimeBuilder:
             raise RuntimeSetupError(
                 f"uv completed without creating the runtime interpreter: {interpreter}"
             )
-        self._checked(
-            (str(interpreter), "-m", "vapoursynth", "config"),
-            project_directory,
-            command_environment,
-            "configure VapourSynth",
-        )
+        # No `vapoursynth config` here: on Windows it would register this staging
+        # path in %APPDATA%; the launcher registers the final path on each start.
         result = self._checked(
             (str(interpreter), "-m", "vapoursynth", "get-vsscript"),
             project_directory,
@@ -144,71 +140,113 @@ class UvRuntimeBuilder:
         return vsscript_path
 
     def _find_uv(self, staging_root: Path, platform: PlatformInfo) -> str:
-        if self.uv_executable:
-            return self.uv_executable
-        filename = "uv.exe" if platform.system == "windows" else "uv"
-        bundled = staging_root / "runtime" / "uv" / filename
-        if bundled.is_file():
-            return str(bundled)
-        configured = os.environ.get("MPV_ENHANCED_UV")
-        if configured:
-            return configured
-        discovered = shutil.which("uv")
-        if discovered:
-            return discovered
-        raise RuntimeSetupError(
-            f"uv is unavailable; expected the bundled executable at {bundled}"
+        # install.cmd/install.sh export their pinned uv here.
+        uv = (
+            self.uv_executable
+            or os.environ.get("MPV_ENHANCED_UV")
+            or shutil.which("uv")
         )
+        if not uv:
+            raise RuntimeSetupError(
+                "uv is unavailable; run install.cmd or install.sh, "
+                "or set MPV_ENHANCED_UV"
+            )
+        return uv
 
     def write_launcher(
         self,
         *,
         staging_root: Path,
-        runtime: UvRuntime,
+        runtime: UvRuntime | None,
         platform: PlatformInfo,
     ) -> Path:
-        relative_environment = runtime.environment.replace("/", "\\")
+        """Write ``mpv-enhanced(.cmd)``; RIFE lines are added only with a runtime."""
         if platform.system == "windows":
+            lines = ["@echo off", "setlocal"]
+            if runtime is not None:
+                environment = runtime.environment.replace("/", "\\")
+                python = f'"%~dp0{environment}\\Scripts\\python.exe"'
+                # VapourSynth on Windows always registers the runtime in
+                # %APPDATA%\vapoursynth\vapoursynth.toml, keyed by DLL path.
+                # Re-running config keeps that entry right if the install moves.
+                lines += [
+                    f"{python} -m vapoursynth config >nul || exit /b 1",
+                    (
+                        f'for /f "usebackq delims=" %%I in (`{python} -m vapoursynth '
+                        'get-vsscript`) do set "VSSCRIPT_PATH=%%I"'
+                    ),
+                    "if not defined VSSCRIPT_PATH exit /b 1",
+                ]
+            lines.append('"%~dp0mpv.exe" %*')
             launcher = staging_root / "mpv-enhanced.cmd"
             launcher.write_text(
-                "@echo off\n"
-                "setlocal\n"
-                'set "MPV_ENHANCED_UV=%~dp0runtime\\uv\\uv.exe"\n'
-                'set "MPV_ENHANCED_7ZR=%~dp0tools\\7zr.exe"\n'
-                'set "XDG_CONFIG_HOME=%~dp0runtime\\config"\n'
-                f'"%~dp0{relative_environment}\\Scripts\\python.exe" '
-                "-m vapoursynth config >nul || exit /b 1\n"
-                f'for /f "usebackq delims=" %%I in (`"%~dp0{relative_environment}'
-                '\\Scripts\\python.exe" -m vapoursynth get-vsscript`) do set "VSSCRIPT_PATH=%%I"\n'
-                "if not defined VSSCRIPT_PATH exit /b 1\n"
-                '"%~dp0mpv.exe" %*\n',
-                encoding="utf-8",
-                newline="\r\n",
+                "\n".join(lines) + "\n", encoding="utf-8", newline="\r\n"
             )
             return launcher
 
-        launcher = staging_root / "mpv-enhanced"
-        relative_environment = runtime.environment
-        launcher.write_text(
-            "#!/bin/sh\n"
-            'SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1\n'
-            'MPV_ENHANCED_UV="$SCRIPT_DIR/runtime/uv/uv"\n'
-            "export MPV_ENHANCED_UV\n"
-            'MPV_ENHANCED_7ZR="$SCRIPT_DIR/tools/7zr"\n'
-            "export MPV_ENHANCED_7ZR\n"
-            'XDG_CONFIG_HOME="$SCRIPT_DIR/runtime/config"\n'
-            "export XDG_CONFIG_HOME\n"
-            f'"$SCRIPT_DIR/{relative_environment}/bin/python" '
-            "-m vapoursynth config >/dev/null || exit 1\n"
-            f'VSSCRIPT_PATH=$("$SCRIPT_DIR/{relative_environment}/bin/python" '
-            "-m vapoursynth get-vsscript) || exit 1\n"
-            "export VSSCRIPT_PATH\n"
-            'exec "$SCRIPT_DIR/mpv" "$@"\n',
-            encoding="utf-8",
-            newline="\n",
+        lines = [
+            "#!/bin/sh",
+            'SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1',
+        ]
+        if runtime is not None:
+            python = f'"$SCRIPT_DIR/{runtime.environment}/bin/python"'
+            lines += [
+                'XDG_CONFIG_HOME="$SCRIPT_DIR/runtime/config"',
+                "export XDG_CONFIG_HOME",
+                f"{python} -m vapoursynth config >/dev/null || exit 1",
+                f"VSSCRIPT_PATH=$({python} -m vapoursynth get-vsscript) || exit 1",
+                "export VSSCRIPT_PATH",
+            ]
+        # Linux uses the distribution mpv; macOS uses the downloaded app bundle.
+        mpv = (
+            '"$SCRIPT_DIR/mpv.app/Contents/MacOS/mpv"'
+            if platform.system == "macos"
+            else "mpv"
         )
+        lines.append(f'exec {mpv} --config-dir="$SCRIPT_DIR/portable_config" "$@"')
+        launcher = staging_root / "mpv-enhanced"
+        launcher.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         launcher.chmod(launcher.stat().st_mode | 0o111)
         return launcher
+
+    def retarget(
+        self,
+        *,
+        runtime: UvRuntime,
+        staging_root: Path,
+        target_root: Path,
+        platform: PlatformInfo,
+    ) -> None:
+        """Rewrite absolute staging paths to their post-promotion location.
+
+        ``--relocatable`` does not cover ``pyvenv.cfg``'s ``home``. uv also bakes
+        the install path into the base Python's sysconfig, which VapourSynth
+        reads on Linux to find libpython. On POSIX some symlinks are absolute.
+        """
+        environment = _inside(staging_root, runtime.environment)
+        config = environment / "pyvenv.cfg"
+        if not config.is_file():
+            if self.runner is run_command:
+                raise RuntimeSetupError(f"the runtime has no pyvenv.cfg at {config}")
+            return
+        staged = str(staging_root).encode("utf-8")
+        final = str(target_root).encode("utf-8")
+        if staged not in config.read_bytes():
+            raise RuntimeSetupError(f"cannot relocate runtime; unexpected {config}")
+        python_root = staging_root / "runtime" / "python"
+        for path in (config, *python_root.glob("*/lib/python3*/_sysconfigdata_*.py")):
+            path.write_bytes(path.read_bytes().replace(staged, final))
+        if platform.system == "windows":
+            return
+        links = (*(environment / "bin").iterdir(), *python_root.iterdir())
+        for link in links:
+            if link.is_symlink():
+                destination = Path(os.readlink(link))
+                if destination.is_absolute() and destination.is_relative_to(
+                    staging_root
+                ):
+                    link.unlink()
+                    link.symlink_to(os.path.relpath(destination, link.parent))
 
     def _checked(
         self,

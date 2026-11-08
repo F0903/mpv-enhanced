@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .archives import ArchiveCommandRunner, extract_archive, run_archive_command
+from .archives import extract_archive
 from .downloads import ArtifactCache
 from .errors import InstallerError, OfflineRuntimeUnsupportedError, PromotionError
-from .manifest import Component, Manifest, validate_relative_path
+from .manifest import (
+    Component,
+    Manifest,
+    SystemProgram,
+    parse_version,
+    validate_relative_path,
+)
 from .platforms import PlatformInfo
 from .receipt import InstallationReceipt, InstalledComponent
 from .runtime import UvRuntimeBuilder
@@ -18,7 +26,51 @@ from .runtime import UvRuntimeBuilder
 DEFAULT_PRESERVED_PATHS = (
     "portable_config/mpv-local.conf",
     "portable_config/rife_config_local.py",
+    # mpv resume points, and caches such as TensorRT engines (slow to rebuild).
+    "portable_config/watch_later",
+    "portable_config/cache",
 )
+
+
+def _run_output(command: Sequence[str]) -> str:
+    try:
+        completed = subprocess.run(
+            list(command), check=False, capture_output=True, text=True, timeout=60
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise InstallerError(f"cannot run {command[0]!r}: {exc}") from exc
+    return completed.stdout + completed.stderr
+
+
+def check_system_program(
+    program: SystemProgram,
+    *,
+    run: Callable[[Sequence[str]], str] = _run_output,
+    which: Callable[[str], str | None] = shutil.which,
+) -> tuple[str, str]:
+    """Return the path and version of a required host program, or raise."""
+    path = which(program.command)
+    if path is None:
+        raise InstallerError(
+            f"{program.command!r} was not found on PATH; install it with your "
+            "system package manager first"
+        )
+    version = parse_version(run((path, "--no-config", "--version")))
+    required = ".".join(map(str, program.min_version))
+    if version is None or version < program.min_version:
+        found = ".".join(map(str, version)) if version else "an unknown version"
+        raise InstallerError(
+            f"{path} is {found}; this profile needs {program.command} {required} "
+            "or newer"
+        )
+    if program.check_contains and program.check_contains not in run(
+        (path, "--no-config", *program.check_args)
+    ):
+        raise InstallerError(
+            f"{path} was built without {program.check_contains!r} support, which "
+            "this profile needs"
+        )
+    return path, ".".join(map(str, version))
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +91,7 @@ class Installer:
         source_root: str | Path,
         platform: PlatformInfo | None = None,
         runtime_builder: UvRuntimeBuilder | None = None,
-        archive_runner: ArchiveCommandRunner = run_archive_command,
+        system_check: Callable[[SystemProgram], tuple[str, str]] = check_system_program,
         preserved_paths: tuple[str, ...] = DEFAULT_PRESERVED_PATHS,
     ) -> None:
         self.manifest = manifest
@@ -47,7 +99,7 @@ class Installer:
         self.source_root = Path(source_root).resolve()
         self.platform = platform or PlatformInfo.detect()
         self.runtime_builder = runtime_builder or UvRuntimeBuilder()
-        self.archive_runner = archive_runner
+        self.system_check = system_check
         self.preserved_paths = tuple(
             validate_relative_path(item, "preserved path") for item in preserved_paths
         )
@@ -81,6 +133,22 @@ class Installer:
             for component in profile.components:
                 installed_components.append(
                     self._stage_component(component, staging, offline=offline)
+                )
+            runtime = next(
+                (item.runtime for item in profile.components if item.runtime), None
+            )
+            # Windows mpv.exe finds portable_config itself; elsewhere a launcher
+            # points mpv at it, and RIFE needs one everywhere for VSSCRIPT_PATH.
+            if runtime is not None or self.platform.system != "windows":
+                self.runtime_builder.write_launcher(
+                    staging_root=staging, runtime=runtime, platform=self.platform
+                )
+            if runtime is not None:
+                self.runtime_builder.retarget(
+                    runtime=runtime,
+                    staging_root=staging,
+                    target_root=target,
+                    platform=self.platform,
                 )
             self._write_managed_profile(staging, profile.name)
             self._preserve_user_files(target, staging)
@@ -117,6 +185,13 @@ class Installer:
                 source=component.path,
             )
 
+        if component.kind == "system":
+            assert component.system is not None
+            path, version = self.system_check(component.system)
+            return InstalledComponent(
+                name=component.name, version=version, kind="system", source=path
+            )
+
         if component.kind == "uv-runtime":
             assert component.runtime is not None
             source = self._local_source(component.runtime.project, component.name)
@@ -130,11 +205,6 @@ class Installer:
                 platform=self.platform,
                 cache_root=self.cache.root,
                 offline=offline,
-            )
-            self.runtime_builder.write_launcher(
-                staging_root=staging,
-                runtime=component.runtime,
-                platform=self.platform,
             )
             return InstalledComponent(
                 name=component.name,
@@ -151,10 +221,17 @@ class Installer:
                 raise InstallerError(
                     f"non-archive component {component.name!r} cannot strip components"
                 )
-            if destination.exists():
+            # vsrife's wheel ships 0-byte model placeholders; only those may be
+            # replaced, so a real collision between components still fails.
+            if destination.exists() and not (
+                destination.is_file() and destination.stat().st_size == 0
+            ):
                 raise InstallerError(
                     f"component {component.name!r} collides with {artifact.destination}"
                 )
+            # Unlink first: uv hardlinks venv files to its cache, and writing
+            # through the link would corrupt the cached wheel.
+            destination.unlink(missing_ok=True)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(cached, destination)
         else:
@@ -164,8 +241,6 @@ class Installer:
                 archive_type=artifact.archive,
                 strip_components=artifact.strip_components,
                 exclude=artifact.exclude,
-                seven_zip_executable=self._staged_seven_zip(staging),
-                runner=self.archive_runner,
             )
         return InstalledComponent(
             name=component.name,
@@ -174,11 +249,6 @@ class Installer:
             sha256=artifact.sha256,
             source=artifact.url,
         )
-
-    def _staged_seven_zip(self, staging: Path) -> Path | None:
-        filename = "7zr.exe" if self.platform.system == "windows" else "7zr"
-        candidate = staging / "tools" / filename
-        return candidate if candidate.is_file() else None
 
     def _local_source(self, relative: str, component_name: str) -> Path:
         unresolved = self.source_root.joinpath(*relative.split("/"))
@@ -215,6 +285,9 @@ class Installer:
         for relative in self.preserved_paths:
             old_path = _inside(current, relative)
             new_path = _inside(staging, relative)
+            if old_path.is_dir() and not old_path.is_symlink():
+                shutil.copytree(old_path, new_path, symlinks=True, dirs_exist_ok=True)
+                continue
             if old_path.is_file():
                 new_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(old_path, new_path)

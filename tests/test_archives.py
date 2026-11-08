@@ -1,10 +1,13 @@
+import io
+import os
 import stat
+import tarfile
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
-from mpv_enhanced_installer.archives import ArchiveCommandResult, extract_archive
+from mpv_enhanced_installer.archives import extract_archive
 from mpv_enhanced_installer.errors import UnsafeArchiveError
 
 
@@ -65,98 +68,76 @@ class SafeZipTests(unittest.TestCase):
                 extract_archive(archive, root / "result", archive_type="zip")
 
 
-class NativeSevenZipTests(unittest.TestCase):
-    def test_preflights_extracts_in_temp_and_applies_exclusions(self) -> None:
+def _wrapped_tar(path: Path, members: list[tarfile.TarInfo], data: bytes = b"") -> None:
+    """Write a zip holding one tar.gz, the layout of official macOS mpv builds."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        for member in members:
+            tar.addfile(member, io.BytesIO(data) if member.isfile() else None)
+    with zipfile.ZipFile(path, "w") as output:
+        output.writestr("mpv.tar.gz", buffer.getvalue())
+
+
+def _tar_file(name: str, mode: int, data: bytes) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.size = len(data)
+    info.mode = mode
+    return info
+
+
+class WrappedTarTests(unittest.TestCase):
+    def test_extracts_app_bundle_keeping_exec_bits_and_exclusions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            archive = root / "payload.7z"
-            archive.write_bytes(b"the runner is injected")
-            commands: list[list[str]] = []
-
-            def runner(command, _cwd):
-                commands.append(list(command))
-                if command[1] == "l":
-                    return ArchiveCommandResult(
-                        0,
-                        "Path = mpv.exe\n"
-                        "Size = 3\n"
-                        "Attributes = A\n\n"
-                        "Path = installer/updater.ps1\n"
-                        "Size = 7\n"
-                        "Attributes = A\n",
-                    )
-                output = Path(
-                    next(item[2:] for item in command if item.startswith("-o"))
-                )
-                (output / "installer").mkdir(parents=True)
-                (output / "mpv.exe").write_bytes(b"mpv")
-                (output / "installer" / "updater.ps1").write_text("mutable")
-                return ArchiveCommandResult(0)
-
+            archive = root / "mpv-macos.zip"
+            _wrapped_tar(
+                archive,
+                [
+                    _tar_file("mpv.app/Contents/MacOS/mpv", 0o755, b"mpv"),
+                    _tar_file("mpv.app/Contents/Resources/mpv.conf", 0o644, b"mpv"),
+                ],
+                b"mpv",
+            )
             destination = root / "result"
             extract_archive(
                 archive,
                 destination,
-                archive_type="7z",
-                exclude=("installer",),
-                seven_zip_executable="C:/locked/7zr.exe",
-                runner=runner,
+                archive_type="zip+tar.gz",
+                exclude=("mpv.app/Contents/Resources",),
             )
-            self.assertEqual((destination / "mpv.exe").read_bytes(), b"mpv")
-            self.assertFalse((destination / "installer").exists())
-            self.assertEqual([command[1] for command in commands], ["l", "x"])
-
-    def test_rejects_unsafe_listing_before_extraction(self) -> None:
-        extraction_called = False
-
-        def runner(command, _cwd):
-            nonlocal extraction_called
-            if command[1] == "x":
-                extraction_called = True
-            return ArchiveCommandResult(
-                0,
-                "Path = ../outside.exe\nSize = 3\nAttributes = A\n",
+            binary = destination / "mpv.app" / "Contents" / "MacOS" / "mpv"
+            self.assertEqual(binary.read_bytes(), b"mpv")
+            self.assertFalse(
+                (destination / "mpv.app" / "Contents" / "Resources").exists()
             )
+            if os.name != "nt":
+                self.assertTrue(binary.stat().st_mode & stat.S_IXUSR)
 
+    def test_rejects_links_and_traversal_inside_the_tarball(self) -> None:
+        link = tarfile.TarInfo("mpv.app/link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../../outside"
+        for member in (link, _tar_file("../escaped", 0o644, b"")):
+            with (
+                self.subTest(member=member.name),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                archive = root / "bad.zip"
+                _wrapped_tar(archive, [member])
+                with self.assertRaises(UnsafeArchiveError):
+                    extract_archive(archive, root / "result", archive_type="zip+tar.gz")
+                self.assertFalse((root / "escaped").exists())
+
+    def test_requires_exactly_one_tarball(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with self.assertRaises(UnsafeArchiveError):
-                extract_archive(
-                    root / "bad.7z",
-                    root / "result",
-                    archive_type="7z",
-                    seven_zip_executable="7zr.exe",
-                    runner=runner,
-                )
-            self.assertFalse(extraction_called)
-
-    def test_rejects_link_metadata_before_extraction(self) -> None:
-        extraction_called = False
-
-        def runner(_command, _cwd):
-            nonlocal extraction_called
-            if _command[1] == "x":
-                extraction_called = True
-            return ArchiveCommandResult(
-                0,
-                "Path = installer/link\n"
-                "Size = 0\n"
-                "Attributes = A\n"
-                "Symbolic Link = ../../outside\n",
-            )
-
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            with self.assertRaisesRegex(UnsafeArchiveError, "link or reparse"):
-                extract_archive(
-                    root / "bad.7z",
-                    root / "result",
-                    archive_type="7z",
-                    exclude=("installer",),
-                    seven_zip_executable="7zr.exe",
-                    runner=runner,
-                )
-            self.assertFalse(extraction_called)
+            archive = root / "bad.zip"
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr("a.tar.gz", b"")
+                output.writestr("b.tar.gz", b"")
+            with self.assertRaisesRegex(UnsafeArchiveError, "exactly one"):
+                extract_archive(archive, root / "result", archive_type="zip+tar.gz")
 
 
 if __name__ == "__main__":

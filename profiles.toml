@@ -1,18 +1,20 @@
 schema_version = 1
 
+# Components with a `platforms` list are skipped elsewhere, so `mpv` is
+# downloaded on Windows/macOS and `system-mpv` is checked on Linux.
 [profiles.core]
 description = "mpv and the enhanced portable configuration, without Python or AI dependencies"
-components = ["sevenzip", "mpv", "portable-config"]
-platforms = ["windows-x86_64"]
+components = ["system-mpv", "mpv", "portable-config"]
+platforms = ["windows-x86_64", "linux-x86_64", "macos-aarch64", "macos-x86_64"]
 
 [profiles.rife-cuda]
 description = "Core plus VapourSynth and CUDA-backed RIFE interpolation"
 extends = "core"
-components = ["uv", "rife-runtime", "rife-model-4-25-lite"]
-platforms = ["windows-x86_64"]
+components = ["system-mpv-vapoursynth", "rife-runtime", "rife-model-4-25-lite"]
+platforms = ["windows-x86_64", "linux-x86_64"]
 
 [profiles.rife-tensorrt]
 description = "RIFE CUDA plus TensorRT acceleration; engines are compiled on first use"
 extends = "core"
-components = ["uv", "rife-tensorrt", "rife-model-4-25-lite"]
-platforms = ["windows-x86_64"]
+components = ["system-mpv-vapoursynth", "rife-tensorrt", "rife-model-4-25-lite"]
+platforms = ["windows-x86_64", "linux-x86_64"]

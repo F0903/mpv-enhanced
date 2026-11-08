@@ -16,6 +16,10 @@ from .installer import Installer
 from .manifest import Manifest
 from .platforms import PlatformInfo
 
+NVIDIA_TENSORRT_SLA_URL = (
+    "https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html"
+)
+
 
 def _manifest_arguments(
     parser: argparse.ArgumentParser,
@@ -77,7 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument(
         "--yes",
         action="store_true",
-        help="accepted by non-interactive bootstrappers; explicit installs do not prompt",
+        help="non-interactive confirmation; never accepts third-party licenses",
+    )
+    install.add_argument(
+        "--accept-nvidia-license",
+        action="store_true",
+        help="confirm acceptance of the NVIDIA TensorRT SLA when required",
     )
 
     doctor = subparsers.add_parser("doctor", help="run read-only environment checks")
@@ -127,6 +136,14 @@ def main(
             return 0 if all(item.ok for item in checks) else 1
         if args.command == "install":
             profile_name = _install_profile(args, manifest, stdin, stdout)
+            _require_nvidia_license_acceptance(
+                args,
+                manifest,
+                profile_name,
+                platform,
+                stdin,
+                stdout,
+            )
             installer = Installer(
                 manifest,
                 ArtifactCache(args.cache_dir, downloader=downloader),
@@ -148,6 +165,17 @@ def main(
                     f"Previous installation retained at {result.previous_dir}",
                     file=stdout,
                 )
+            # A launcher exists where mpv needs one (RIFE, Linux, macOS).
+            start = next(
+                (
+                    path
+                    for name in ("mpv-enhanced.cmd", "mpv-enhanced", "mpv.exe")
+                    if (path := result.install_dir / name).is_file()
+                ),
+                None,
+            )
+            if start is not None:
+                print(f"Start mpv-enhanced with: {start}", file=stdout)
             return 0
         parser.error(f"unknown command: {args.command}")
     except InstallerError as exc:
@@ -198,6 +226,46 @@ def _install_profile(
         return names[index - 1]
     except (ValueError, IndexError) as exc:
         raise InstallerError(f"invalid profile selection: {answer!r}") from exc
+
+
+def _require_nvidia_license_acceptance(
+    args: argparse.Namespace,
+    manifest: Manifest,
+    profile_name: str,
+    platform: PlatformInfo,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> None:
+    """Require distinct, explicit consent before installing TensorRT packages."""
+    profile = manifest.resolve_profile(profile_name, platform)
+    requires_tensorrt = any(
+        component.kind == "uv-runtime"
+        and component.runtime is not None
+        and any(extra.casefold() == "tensorrt" for extra in component.runtime.extras)
+        for component in profile.components
+    )
+    if not requires_tensorrt or args.accept_nvidia_license:
+        return
+
+    if args.yes or not stdin.isatty():
+        raise InstallerError(
+            f"profile {profile_name!r} requires acceptance of the NVIDIA TensorRT "
+            f"SLA at {NVIDIA_TENSORRT_SLA_URL}; review it and re-run with "
+            "--accept-nvidia-license (--yes does not accept third-party licenses)"
+        )
+
+    print("This profile installs NVIDIA TensorRT packages.", file=stdout)
+    print(f"Review the NVIDIA TensorRT SLA: {NVIDIA_TENSORRT_SLA_URL}", file=stdout)
+    print(
+        "Type 'accept' to accept the SLA and continue: ",
+        end="",
+        flush=True,
+        file=stdout,
+    )
+    if stdin.readline().strip() != "accept":
+        raise InstallerError(
+            "NVIDIA TensorRT SLA was not accepted; installation cancelled"
+        )
 
 
 def _default_cache_dir() -> Path:

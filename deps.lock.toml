@@ -4,37 +4,57 @@ schema_version = 1
 version = "0.1.0-dev"
 
 [metadata]
-target = "windows-x86_64"
 hash_algorithm = "sha256"
 
-[components.sevenzip]
-kind = "download"
-version = "26.02"
-description = "Reduced standalone 7-Zip console extractor"
-source = "https://github.com/ip7z/7zip"
-
-[components.sevenzip.artifacts.windows-x86_64]
-url = "https://github.com/ip7z/7zip/releases/download/26.02/7zr.exe"
-sha256 = "56b8cc9f4971cef253644fafe54063ed7fdca551d4dee0f8c6baa81b855acd72"
-size = 602112
-archive = "none"
-strip_components = 0
-destination = "tools/7zr.exe"
-
+# Official upstream builds: versioned release URLs that are never deleted.
 [components.mpv]
 kind = "download"
-version = "20260814-git-7b8915bc1d"
-description = "Shinchiro mpv Windows x86-64 baseline build"
-source = "https://github.com/shinchiro/mpv-winbuild-cmake"
+version = "0.42.0"
+description = "Official mpv release build"
+source = "https://github.com/mpv-player/mpv/releases/tag/v0.42.0"
+platforms = ["windows", "macos"]
 
+# mingw "full" needs no VC++ redistributable and has the VapourSynth R74+ loader.
 [components.mpv.artifacts.windows-x86_64]
-url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260814/mpv-x86_64-20260814-git-7b8915bc1d.7z"
-sha256 = "1bf3b029da2c98e605e00e85f21ee3142f22a1dcc4ceb5c827b5c51e36e390f9"
-size = 33583248
-archive = "7z"
-strip_components = 0
-destination = "."
-exclude = ["installer", "updater.bat", "mpv-register.bat", "mpv-unregister.bat"]
+url = "https://github.com/mpv-player/mpv/releases/download/v0.42.0/mpv-v0.42.0-x86_64-w64-mingw32-full.zip"
+sha256 = "c7d4ff6a67dd33659f71d81efa56335fea2213c7522fd67235f3abf0d9ea1dbd"
+size = 65699428
+archive = "zip"
+exclude = [
+    "libbluray-awt-j2se-1.5.1.jar",
+    "libbluray-j2se-1.5.1.jar",
+    "mpv-register.bat",
+    "mpv-unregister.bat",
+]
+
+[components.mpv.artifacts.macos-aarch64]
+url = "https://github.com/mpv-player/mpv/releases/download/v0.42.0/mpv-v0.42.0-macos-15-arm.zip"
+sha256 = "be1b8d2445e6880860869c080b8710dee189721f1fa4689840db6a2c10d7be69"
+size = 48835385
+archive = "zip+tar.gz"
+
+[components.mpv.artifacts.macos-x86_64]
+url = "https://github.com/mpv-player/mpv/releases/download/v0.42.0/mpv-v0.42.0-macos-15-intel.zip"
+sha256 = "2d2f34350ff844b6014c35f21ca142937275e19c0c673150a8564fcd2f3bfa14"
+size = 53343668
+archive = "zip+tar.gz"
+
+# mpv publishes no Linux builds, so Linux uses the distribution's mpv.
+[components.system-mpv]
+kind = "system"
+description = "Distribution mpv on PATH"
+command = "mpv"
+min_version = "0.36.0"
+platforms = ["linux"]
+
+[components.system-mpv-vapoursynth]
+kind = "system"
+description = "mpv 0.42+ with the vapoursynth filter (loads VapourSynth R74+ at runtime)"
+command = "mpv"
+min_version = "0.42.0"
+check_args = ["--vf=help"]
+check_contains = "vapoursynth"
+platforms = ["linux"]
 
 [components.portable-config]
 kind = "local"
@@ -42,20 +62,6 @@ version = "repository"
 description = "mpv-enhanced configuration and bundled scripts"
 path = "portable_config"
 destination = "portable_config"
-
-[components.uv]
-kind = "download"
-version = "0.12.5"
-description = "Standalone uv bootstrap and runtime package manager"
-source = "https://github.com/astral-sh/uv"
-
-[components.uv.artifacts.windows-x86_64]
-url = "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-x86_64-pc-windows-msvc.zip"
-sha256 = "4c4d49d8738847d9b71ba319e49a5688c93eac0fe6204b1df24e98528dddf39a"
-size = 20329591
-archive = "zip"
-strip_components = 0
-destination = "runtime/uv"
 
 [components.rife-runtime]
 kind = "uv-runtime"
@@ -86,5 +92,11 @@ url = "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.25.l
 sha256 = "81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1"
 size = 24467405
 archive = "none"
-strip_components = 0
 destination = "runtime/venv/Lib/site-packages/vsrife/models/flownet_v4.25.lite.pkl"
+
+[components.rife-model-4-25-lite.artifacts.linux-x86_64]
+url = "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.25.lite.pkl"
+sha256 = "81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1"
+size = 24467405
+archive = "none"
+destination = "runtime/venv/lib/python3.12/site-packages/vsrife/models/flownet_v4.25.lite.pkl"

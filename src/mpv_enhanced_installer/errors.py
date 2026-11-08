@@ -37,10 +37,6 @@ class UnsafeArchiveError(InstallerError):
     """An archive contains an unsafe or ambiguous path."""
 
 
-class MissingArchiveBackendError(InstallerError):
-    """An optional archive reader required for an artifact is unavailable."""
-
-
 class PromotionError(InstallerError):
     """A staged installation could not be promoted or rolled back."""
 

@@ -1,14 +1,17 @@
+import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from mpv_enhanced_installer.downloads import ArtifactCache
 from mpv_enhanced_installer.errors import (
     InstallerError,
     OfflineRuntimeUnsupportedError,
 )
-from mpv_enhanced_installer.installer import Installer
-from mpv_enhanced_installer.manifest import Manifest
+from mpv_enhanced_installer.installer import Installer, check_system_program
+from mpv_enhanced_installer.manifest import Manifest, SystemProgram
 from mpv_enhanced_installer.platforms import PlatformInfo
 from mpv_enhanced_installer.receipt import InstallationReceipt
 
@@ -83,9 +86,20 @@ class TransactionalInstallerTests(unittest.TestCase):
             (target / "portable_config" / "mpv-local.conf").write_text(
                 "my overrides", encoding="utf-8"
             )
+            # mpv resume points and cached TensorRT engines are user state too.
+            engines = target / "portable_config" / "cache" / "tensorrt"
+            engines.mkdir(parents=True)
+            (engines / "720p.ts").write_bytes(b"engine")
+            (target / "portable_config" / "watch_later").mkdir()
+            (target / "portable_config" / "watch_later" / "ABC").write_text("start=42")
             (source / "mpv.conf").write_text("managed-v2", encoding="utf-8")
             second = installer.install("core", target)
             self.assertEqual(second.previous_dir, root / "installed.previous")
+            self.assertEqual((engines / "720p.ts").read_bytes(), b"engine")
+            self.assertEqual(
+                (target / "portable_config" / "watch_later" / "ABC").read_text(),
+                "start=42",
+            )
             self.assertEqual(
                 (target / "portable_config" / "mpv-local.conf").read_text(
                     encoding="utf-8"
@@ -189,6 +203,175 @@ class TransactionalInstallerTests(unittest.TestCase):
 
             self.assertFalse(target.parent.exists())
             self.assertFalse((root / "cache").exists())
+
+    def test_linux_core_checks_system_mpv_first_and_writes_a_launcher(self) -> None:
+        manifest = Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {
+                    "system-mpv": {
+                        "kind": "system",
+                        "command": "mpv",
+                        "min_version": "0.36",
+                    },
+                    "config": {
+                        "kind": "local",
+                        "path": "portable_config",
+                        "destination": "portable_config",
+                    },
+                },
+            },
+            {
+                "schema_version": 1,
+                "profiles": {"core": {"components": ["system-mpv", "config"]}},
+            },
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "source" / "portable_config").mkdir(parents=True)
+
+            def missing_mpv(_program):
+                raise InstallerError("'mpv' was not found on PATH")
+
+            failing = Installer(
+                manifest,
+                ArtifactCache(root / "cache"),
+                source_root=root / "source",
+                platform=PlatformInfo("linux", "x86_64"),
+                system_check=missing_mpv,
+            )
+            with self.assertRaisesRegex(InstallerError, "not found on PATH"):
+                failing.install("core", root / "installed")
+            self.assertFalse((root / "installed").exists())
+
+            installer = Installer(
+                manifest,
+                ArtifactCache(root / "cache"),
+                source_root=root / "source",
+                platform=PlatformInfo("linux", "x86_64"),
+                system_check=lambda _program: ("/usr/bin/mpv", "0.42.0"),
+            )
+            result = installer.install("core", root / "installed")
+            self.assertIn(
+                "--config-dir=", (root / "installed" / "mpv-enhanced").read_text()
+            )
+            recorded = result.receipt.components[0]
+            self.assertEqual(
+                (recorded.kind, recorded.version, recorded.source),
+                ("system", "0.42.0", "/usr/bin/mpv"),
+            )
+
+    def test_downloaded_file_replaces_only_an_empty_placeholder(self) -> None:
+        model = b"model-bytes"
+        manifest = Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {
+                    "placeholder": {
+                        "kind": "local",
+                        "path": "model.pkl",
+                        "destination": "models/model.pkl",
+                    },
+                    "model": {
+                        "kind": "download",
+                        "artifacts": {
+                            "any": {
+                                "url": "https://example.invalid/model.pkl",
+                                "sha256": hashlib.sha256(model).hexdigest(),
+                                "size": len(model),
+                                "archive": "none",
+                                "destination": "models/model.pkl",
+                            }
+                        },
+                    },
+                },
+            },
+            {
+                "schema_version": 1,
+                "profiles": {"rife": {"components": ["placeholder", "model"]}},
+            },
+        )
+        for placeholder, should_install in ((b"", True), (b"real", False)):
+            with (
+                self.subTest(placeholder=placeholder),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                (root / "source").mkdir()
+                (root / "source" / "model.pkl").write_bytes(placeholder)
+                installer = Installer(
+                    manifest,
+                    ArtifactCache(
+                        root / "cache",
+                        downloader=lambda _url, path: path.write_bytes(model),
+                    ),
+                    source_root=root / "source",
+                    platform=PlatformInfo("windows", "x86_64"),
+                )
+                target = root / "installed"
+                if should_install:
+
+                    def hardlink(source: Path, destination: Path) -> None:
+                        # Stand-in for uv, which hardlinks venv files to its cache.
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        os.link(source, destination)
+
+                    with patch(
+                        "mpv_enhanced_installer.installer._copy_local", hardlink
+                    ):
+                        installer.install("rife", target)
+                    self.assertEqual(
+                        (target / "models" / "model.pkl").read_bytes(), model
+                    )
+                    # The "cache" side of the hardlink must stay untouched.
+                    self.assertEqual((root / "source" / "model.pkl").read_bytes(), b"")
+                else:
+                    with self.assertRaisesRegex(InstallerError, "collides"):
+                        installer.install("rife", target)
+
+
+class SystemProgramTests(unittest.TestCase):
+    program = SystemProgram(
+        command="mpv",
+        min_version=(0, 42, 0),
+        check_args=("--vf=help",),
+        check_contains="vapoursynth",
+    )
+
+    def check(self, outputs: dict[str, str], path: str | None = "/usr/bin/mpv"):
+        return check_system_program(
+            self.program,
+            run=lambda command: outputs[command[-1]],
+            which=lambda _name: path,
+        )
+
+    def test_accepts_new_enough_mpv_with_the_filter(self) -> None:
+        found = self.check(
+            {
+                "--version": "mpv v0.42.0-dev-g1a2b3c Copyright",
+                "--vf=help": "  vapoursynth  VapourSynth bridge",
+            }
+        )
+        self.assertEqual(found, ("/usr/bin/mpv", "0.42.0"))
+
+    def test_rejects_missing_old_or_featureless_mpv(self) -> None:
+        cases = {
+            "not found on PATH": ({}, None),
+            "0.41.0; this profile needs mpv 0.42.0": (
+                {"--version": "mpv 0.41.0-2 Copyright"},
+                "/usr/bin/mpv",
+            ),
+            "without 'vapoursynth'": (
+                {"--version": "mpv v0.42.0", "--vf=help": "  crop  Crop"},
+                "/usr/bin/mpv",
+            ),
+        }
+        for message, (outputs, path) in cases.items():
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(InstallerError, message),
+            ):
+                self.check(outputs, path)
 
 
 if __name__ == "__main__":

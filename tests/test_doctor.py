@@ -12,7 +12,6 @@ from mpv_enhanced_installer.receipt import (
     InstalledComponent,
 )
 
-SEVENZIP = b"locked-sevenzip"
 MODEL = b"locked-model"
 
 
@@ -36,40 +35,27 @@ def test_manifest() -> Manifest:
             "schema_version": 1,
             "release": {"version": "test"},
             "components": {
-                "sevenzip": {
-                    "kind": "download",
-                    "artifacts": {
-                        "windows-x86_64": artifact(
-                            SEVENZIP,
-                            archive="none",
-                            destination="tools/7zr.exe",
-                        )
-                    },
-                },
                 "mpv": {
                     "kind": "download",
+                    "platforms": ["windows"],
                     "artifacts": {
                         "windows-x86_64": artifact(
                             b"archive",
-                            archive="7z",
+                            archive="zip",
                             destination=".",
                         )
                     },
+                },
+                "system-mpv": {
+                    "kind": "system",
+                    "command": "mpv",
+                    "min_version": "0.36.0",
+                    "platforms": ["linux"],
                 },
                 "portable-config": {
                     "kind": "local",
                     "path": "portable_config",
                     "destination": "portable_config",
-                },
-                "uv": {
-                    "kind": "download",
-                    "artifacts": {
-                        "windows-x86_64": artifact(
-                            b"uv-archive",
-                            archive="zip",
-                            destination="runtime/uv",
-                        )
-                    },
                 },
                 "rife-runtime": {
                     "kind": "uv-runtime",
@@ -95,12 +81,12 @@ def test_manifest() -> Manifest:
             "schema_version": 1,
             "profiles": {
                 "core": {
-                    "components": ["sevenzip", "mpv", "portable-config"],
-                    "platforms": ["windows-x86_64"],
+                    "components": ["system-mpv", "mpv", "portable-config"],
+                    "platforms": ["windows-x86_64", "linux-x86_64"],
                 },
                 "rife": {
                     "extends": "core",
-                    "components": ["uv", "rife-runtime", "model"],
+                    "components": ["rife-runtime", "model"],
                     "platforms": ["windows-x86_64"],
                 },
             },
@@ -117,11 +103,16 @@ def prepare_source(root: Path) -> Path:
     return source
 
 
-def write_receipt(install: Path, profile: str, components: list[str]) -> None:
+def write_receipt(
+    install: Path,
+    profile: str,
+    components: list[str],
+    platform: str = "windows-x86_64",
+) -> None:
     InstallationReceipt.create(
         release="test",
         profile=profile,
-        platform="windows-x86_64",
+        platform=platform,
         components=tuple(
             InstalledComponent(name=name, version="test", kind="test")
             for name in components
@@ -130,120 +121,50 @@ def write_receipt(install: Path, profile: str, components: list[str]) -> None:
 
 
 class DoctorTests(unittest.TestCase):
-    def test_opaque_root_payload_requires_core_product_inventory(self) -> None:
-        manifest = Manifest.from_data(
-            {
-                "schema_version": 1,
-                "release": {"version": "payload-test"},
-                "components": {
-                    "arbitrary-release-bundle-name": {
-                        "kind": "local",
-                        "path": "payload/core",
-                        "destination": ".",
-                    }
-                },
-            },
-            {
-                "schema_version": 1,
-                "profiles": {"core": {"components": ["arbitrary-release-bundle-name"]}},
-            },
-        )
+    def test_profile_is_inferred_and_core_files_are_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "source"
-            (source / "payload" / "core").mkdir(parents=True)
+            source = prepare_source(root)
             install = root / "install"
-            install.mkdir()
-            InstallationReceipt.create(
-                release="payload-test",
-                profile="core",
-                platform="windows-x86_64",
-                components=(
-                    InstalledComponent(
-                        name="arbitrary-release-bundle-name",
-                        version="test",
-                        kind="local",
-                    ),
-                ),
-            ).write(install)
+            (install / "portable_config").mkdir(parents=True)
+            (install / "portable_config" / "mpv.conf").write_text("config")
+            write_receipt(install, "core", ["mpv", "portable-config"])
 
             checks = run_doctor(
-                manifest,
+                test_manifest(),
                 platform=PlatformInfo("windows", "x86_64"),
                 source_root=source,
                 install_dir=install,
             )
             by_name = {check.name: check for check in checks}
             self.assertFalse(by_name["installed:mpv"].ok)
-            self.assertFalse(by_name["installed:portable-config"].ok)
+            self.assertIn("profile:core", by_name)
+            self.assertNotIn("profile:rife", by_name)
+            self.assertNotIn("installed:launcher", by_name)
 
             (install / "mpv.exe").write_bytes(b"mpv")
-            (install / "portable_config").mkdir()
-            (install / "portable_config" / "mpv.conf").write_text("config")
-            checks = run_doctor(
-                manifest,
-                platform=PlatformInfo("windows", "x86_64"),
-                source_root=source,
-                install_dir=install,
-            )
-            self.assertTrue(all(check.ok for check in checks), checks)
-
-    def test_profile_is_inferred_and_core_files_and_hashes_are_verified(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = prepare_source(root)
-            install = root / "install"
-            (install / "tools").mkdir(parents=True)
-            (install / "portable_config").mkdir()
-            (install / "tools" / "7zr.exe").write_bytes(SEVENZIP)
-            (install / "mpv.exe").write_bytes(b"mpv")
-            (install / "portable_config" / "mpv.conf").write_text("config")
-            write_receipt(
-                install,
-                "core",
-                ["sevenzip", "mpv", "portable-config"],
-            )
-
             checks = run_doctor(
                 test_manifest(),
                 platform=PlatformInfo("windows", "x86_64"),
                 source_root=source,
                 install_dir=install,
             )
-
             self.assertTrue(all(check.ok for check in checks), checks)
-            self.assertIn("profile:core", {check.name for check in checks})
-            self.assertIn("installed:sevenzip", {check.name for check in checks})
-            self.assertNotIn("profile:rife", {check.name for check in checks})
 
-            (install / "tools" / "7zr.exe").write_bytes(b"tampered")
-            checks = run_doctor(
-                test_manifest(),
-                platform=PlatformInfo("windows", "x86_64"),
-                source_root=source,
-                install_dir=install,
-            )
-            sevenzip = next(
-                check for check in checks if check.name == "installed:sevenzip"
-            )
-            self.assertFalse(sevenzip.ok)
-
-    def test_rife_audit_requires_runtime_launcher_uv_python_and_model(self) -> None:
+    def test_rife_audit_requires_runtime_launcher_python_and_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = prepare_source(root)
             install = root / "install"
             required = [
-                install / "tools" / "7zr.exe",
                 install / "mpv.exe",
                 install / "portable_config" / "mpv.conf",
-                install / "runtime" / "uv" / "uv.exe",
                 install / "runtime" / "venv" / "Scripts" / "python.exe",
                 install / "mpv-enhanced.cmd",
             ]
             for path in required:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(SEVENZIP if path.name == "7zr.exe" else b"present")
+                path.write_bytes(b"present")
             model = (
                 install
                 / "runtime"
@@ -259,42 +180,32 @@ class DoctorTests(unittest.TestCase):
             write_receipt(
                 install,
                 "rife",
-                [
-                    "sevenzip",
-                    "mpv",
-                    "portable-config",
-                    "uv",
-                    "rife-runtime",
-                    "model",
-                ],
+                ["mpv", "portable-config", "rife-runtime", "model"],
             )
 
-            checks = run_doctor(
-                test_manifest(),
-                platform=PlatformInfo("windows", "x86_64"),
-                source_root=source,
-                install_dir=install,
-            )
-            self.assertTrue(all(check.ok for check in checks), checks)
+            with patch.dict("os.environ", {"MPV_ENHANCED_UV": "pinned-uv"}):
+                checks = run_doctor(
+                    test_manifest(),
+                    platform=PlatformInfo("windows", "x86_64"),
+                    source_root=source,
+                    install_dir=install,
+                )
+                self.assertTrue(all(check.ok for check in checks), checks)
 
-            model.unlink()
-            checks = run_doctor(
-                test_manifest(),
-                platform=PlatformInfo("windows", "x86_64"),
-                source_root=source,
-                install_dir=install,
-            )
+                model.write_bytes(b"tampered")
+                checks = run_doctor(
+                    test_manifest(),
+                    platform=PlatformInfo("windows", "x86_64"),
+                    source_root=source,
+                    install_dir=install,
+                )
             self.assertFalse(next(c for c in checks if c.name == "installed:model").ok)
 
-    def test_locked_helpers_make_source_doctor_independent_of_path(self) -> None:
+    def test_missing_uv_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             source = prepare_source(Path(temporary))
             with (
-                patch.dict(
-                    "os.environ",
-                    {"PATH": ""},
-                    clear=True,
-                ),
+                patch.dict("os.environ", {}, clear=True),
                 patch("mpv_enhanced_installer.doctor.shutil.which", return_value=None),
             ):
                 checks = run_doctor(
@@ -303,10 +214,42 @@ class DoctorTests(unittest.TestCase):
                     source_root=source,
                     profile_name="rife",
                 )
+            uv = next(check for check in checks if check.name == "runtime:uv")
+            self.assertFalse(uv.ok)
+
+    def test_linux_checks_system_mpv_and_requires_the_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = prepare_source(root)
+            install = root / "install"
+            (install / "portable_config").mkdir(parents=True)
+            (install / "portable_config" / "mpv.conf").write_text("config")
+            write_receipt(
+                install, "core", ["system-mpv", "portable-config"], "linux-x86_64"
+            )
+            with patch(
+                "mpv_enhanced_installer.doctor.check_system_program",
+                return_value=("/usr/bin/mpv", "0.42.0"),
+            ):
+                checks = run_doctor(
+                    test_manifest(),
+                    platform=PlatformInfo("linux", "x86_64"),
+                    source_root=source,
+                    install_dir=install,
+                )
+                by_name = {check.name: check for check in checks}
+                self.assertTrue(by_name["system:system-mpv"].ok)
+                self.assertNotIn("installed:mpv", by_name)
+                self.assertFalse(by_name["installed:launcher"].ok)
+
+                (install / "mpv-enhanced").write_text("#!/bin/sh\n")
+                checks = run_doctor(
+                    test_manifest(),
+                    platform=PlatformInfo("linux", "x86_64"),
+                    source_root=source,
+                    install_dir=install,
+                )
             self.assertTrue(all(check.ok for check in checks), checks)
-            details = {check.name: check.detail for check in checks}
-            self.assertIn("locked sevenzip", details["archive:7z"])
-            self.assertIn("locked uv", details["runtime:uv"])
 
 
 if __name__ == "__main__":
