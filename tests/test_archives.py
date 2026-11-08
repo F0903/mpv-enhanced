@@ -12,18 +12,16 @@ from mpv_enhanced_installer.errors import UnsafeArchiveError
 
 
 class SafeZipTests(unittest.TestCase):
-    def test_extracts_with_stripped_top_level_directory(self) -> None:
+    def test_extracts_files_into_the_destination(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive = root / "payload.zip"
             with zipfile.ZipFile(archive, "w") as output:
-                output.writestr("release/bin/mpv.exe", b"mpv")
-                output.writestr("release/portable_config/mpv.conf", b"config")
+                output.writestr("bin/mpv.exe", b"mpv")
+                output.writestr("portable_config/mpv.conf", b"config")
 
             destination = root / "result"
-            extract_archive(
-                archive, destination, archive_type="zip", strip_components=1
-            )
+            extract_archive(archive, destination, archive_type="zip")
 
             self.assertEqual((destination / "bin" / "mpv.exe").read_bytes(), b"mpv")
             self.assertEqual(

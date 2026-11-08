@@ -19,7 +19,7 @@ from .errors import UnsafeArchiveError
 _Entry = tuple[str, bool, bool, int, Callable[[], AbstractContextManager[IO[bytes]]]]
 
 
-def _member_parts(name: str, strip_components: int) -> tuple[str, ...] | None:
+def _member_parts(name: str) -> tuple[str, ...]:
     if not name or "\x00" in name:
         raise UnsafeArchiveError(f"archive contains an invalid path: {name!r}")
     normalized = name.replace("\\", "/")
@@ -32,10 +32,7 @@ def _member_parts(name: str, strip_components: int) -> tuple[str, ...] | None:
         or ".." in posix.parts
     ):
         raise UnsafeArchiveError(f"archive path escapes its destination: {name!r}")
-    parts = tuple(part for part in posix.parts if part not in ("", "."))
-    if len(parts) <= strip_components:
-        return None
-    return parts[strip_components:]
+    return tuple(part for part in posix.parts if part not in ("", "."))
 
 
 def _target(root: Path, parts: tuple[str, ...]) -> Path:
@@ -65,18 +62,13 @@ def extract_archive(
     destination: str | Path,
     *,
     archive_type: str,
-    strip_components: int = 0,
     exclude: Sequence[str] = (),
 ) -> None:
     """Safely extract a zip, or a zip wrapping one tar.gz, into a directory."""
-    if strip_components < 0:
-        raise ValueError("strip_components must be non-negative")
     archive_path = Path(archive).resolve()
     destination_path = Path(destination).resolve()
     destination_path.mkdir(parents=True, exist_ok=True)
-    exclusions = tuple(
-        parts for item in exclude if (parts := _member_parts(item, 0)) is not None
-    )
+    exclusions = tuple(parts for item in exclude if (parts := _member_parts(item)))
     try:
         with zipfile.ZipFile(archive_path) as source:
             if archive_type == "zip":
@@ -90,11 +82,9 @@ def extract_archive(
                     )
                     for info in source.infolist()
                 )
-                _write_entries(entries, destination_path, strip_components, exclusions)
+                _write_entries(entries, destination_path, exclusions)
             elif archive_type == "zip+tar.gz":
-                _extract_wrapped_tar(
-                    source, archive_path, destination_path, strip_components, exclusions
-                )
+                _extract_wrapped_tar(source, archive_path, destination_path, exclusions)
             else:
                 raise ValueError(f"unsupported archive type: {archive_type!r}")
     except (zipfile.BadZipFile, tarfile.TarError, OSError) as exc:
@@ -105,7 +95,6 @@ def _extract_wrapped_tar(
     source: zipfile.ZipFile,
     archive: Path,
     destination: Path,
-    strip_components: int,
     exclusions: tuple[tuple[str, ...], ...],
 ) -> None:
     # Official macOS mpv builds are a zip holding a single mpv.tar.gz.
@@ -127,13 +116,12 @@ def _extract_wrapped_tar(
                 )
                 for member in tar.getmembers()
             )
-            _write_entries(entries, destination, strip_components, exclusions)
+            _write_entries(entries, destination, exclusions)
 
 
 def _write_entries(
     entries: Iterable[_Entry],
     destination: Path,
-    strip_components: int,
     exclusions: tuple[tuple[str, ...], ...],
 ) -> None:
     # Validate every entry before writing anything.
@@ -144,11 +132,8 @@ def _write_entries(
         ]
     ] = []
     for name, is_directory, is_special, mode, open_member in entries:
-        original_parts = _member_parts(name, 0)
-        if original_parts is None or _is_excluded(original_parts, exclusions):
-            continue
-        parts = _member_parts(name, strip_components)
-        if parts is None:
+        parts = _member_parts(name)
+        if not parts or _is_excluded(parts, exclusions):
             continue
         if is_special:
             raise UnsafeArchiveError(
