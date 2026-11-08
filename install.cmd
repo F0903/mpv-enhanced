@@ -13,8 +13,8 @@ set "UV_BIN=%UV_DIR%\uv.exe"
 if not exist "%UV_BIN%" (
     call :fetch_uv
     if errorlevel 1 (
-        popd
-        exit /b 1
+        set "INSTALL_EXIT=1"
+        goto :finish
     )
 )
 
@@ -24,6 +24,8 @@ set "UV_PYTHON_NO_REGISTRY=1"
 set "UV_CACHE_DIR=%PROJECT_ROOT%\.uv-cache"
 "%UV_BIN%" run --project "%PROJECT_ROOT%" --locked --no-dev --no-editable mpv-enhanced %*
 set "INSTALL_EXIT=%errorlevel%"
+
+:finish
 popd
 rem Double-clicked from Explorer (no arguments, own console): keep the window
 rem open so the result or error can be read.
