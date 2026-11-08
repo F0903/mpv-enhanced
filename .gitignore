@@ -14,9 +14,7 @@ dist/
 runtime/python/
 runtime/controller-python/
 runtime/**/.venv/
-install_vs.ps1
-7z.exe
-mpv-*.7z
+.bootstrap/
 
 # mpv runtime state
 portable_config/cache/

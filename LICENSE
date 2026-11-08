@@ -1,3 +1,11 @@
+mpv-enhanced
+Copyright (C) 2024-2026 mpv-enhanced contributors
+
+Except for third-party files identified in THIRD_PARTY_NOTICES.md or carrying
+their own license notice, the project-authored source code and configuration in
+this repository are licensed under the GNU General Public License, version 2,
+or (at your option) any later version (GPL-2.0-or-later).
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 2, June 1991
 
@@ -336,4 +344,3 @@ proprietary programs.  If your program is a subroutine library, you may
 consider it more useful to permit linking proprietary applications with the
 library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.
-

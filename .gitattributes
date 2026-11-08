@@ -1,2 +1,11 @@
+# Keep script line endings fixed regardless of core.autocrlf: bash fails on
+# CRLF, and cmd.exe can lose `call :label` targets in LF-only batch files.
+*.sh text eol=lf
+*.cmd text eol=crlf
+
 # Upstream license texts may contain historical trailing whitespace.
 LICENSES/** -whitespace
+
+# Release zips (git archive) contain only what an install needs.
+/.github export-ignore
+/tests export-ignore

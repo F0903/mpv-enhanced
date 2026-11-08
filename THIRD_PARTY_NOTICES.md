@@ -1,28 +1,33 @@
 # Third-party notices
 
-mpv-enhanced combines configuration authored in this repository with software
-and assets maintained by other projects. Their licenses remain controlling.
-Release archives retain the license files shipped by each upstream artifact
-and the applicable texts collected in [`LICENSES/`](LICENSES/). This summary is
-not a replacement for those license texts.
+mpv-enhanced is licensed under GPL-2.0-or-later; see [`LICENSE`](LICENSE).
+Files identified below remain under their upstream terms. The license texts
+collected in [`LICENSES/`](LICENSES/) are part of the repository and release
+zip. This is an engineering summary, not legal advice.
 
-| Component | Pinned version | Source | License |
+## Files included in this repository and its release zip
+
+| Component | Pinned identity | License and retained notice | Source |
 | --- | --- | --- | --- |
-| mpv Windows build | `20260814-git-7b8915bc1d` | [shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake) and [mpv-player/mpv](https://github.com/mpv-player/mpv) | mpv is GPL-2.0-or-later by default; bundled libraries have their own terms |
-| 7-Zip reduced console | `26.02` | [ip7z/7zip](https://github.com/ip7z/7zip) | LGPL-2.1-or-later, BSD-3-Clause, and unRAR restriction for applicable portions; see `LICENSES/7zip-License.txt` |
-| uv | `0.12.5` | [astral-sh/uv](https://github.com/astral-sh/uv) | Apache-2.0 or MIT; see `LICENSES/uv-APACHE-2.0.txt` and `LICENSES/uv-MIT.txt` |
-| Python | `3.12.13` | [python/cpython](https://github.com/python/cpython) | Python Software Foundation License; see `LICENSES/Python-3.12.13.txt` |
-| python-build-standalone payload | `3.12.13+20260807` | [astral-sh/python-build-standalone](https://github.com/astral-sh/python-build-standalone/tree/20260807) | The builder is MPL-2.0; the produced Python distribution includes CPython and native dependencies under their respective terms. See `LICENSES/python-build-standalone-MPL-2.0.txt`, the payload's combined `LICENSE.txt` mirrored as `LICENSES/Python-standalone-3.12.13+20260807.txt`, and the exact upstream dependency texts in `LICENSES/python-build-standalone-20260807/` |
-| VapourSynth | `77` | [vapoursynth/vapoursynth](https://github.com/vapoursynth/vapoursynth) | LGPL-2.1 |
-| vs-rife | `5.7.0` | [HolyWu/vs-rife](https://github.com/HolyWu/vs-rife) | MIT |
-| PyTorch | `2.12.1+cu130` | [pytorch/pytorch](https://github.com/pytorch/pytorch) | BSD-3-Clause; binary distributions include additional notices |
-| Torch-TensorRT | `2.12.1+cu130` | [pytorch/TensorRT](https://github.com/pytorch/TensorRT) | BSD-3-Clause; NVIDIA dependencies have additional terms |
-| TensorRT Python packages | `10.16.1.11` | [NVIDIA/TensorRT](https://github.com/NVIDIA/TensorRT) | NVIDIA software license and third-party notices |
-| uosc | `5.12.0` | [tomasklaen/uosc](https://github.com/tomasklaen/uosc) | LGPL-2.1; see `LICENSES/uosc-LGPL-2.1.txt` |
-| thumbfast | bundled snapshot | [po5/thumbfast](https://github.com/po5/thumbfast) | MPL-2.0; see `LICENSES/thumbfast-MPL-2.0.txt` |
-| autocrop.lua | modified bundled snapshot | [mpv-player/mpv `TOOLS/lua/autocrop.lua`](https://github.com/mpv-player/mpv/blob/v0.41.0/TOOLS/lua/autocrop.lua) | GPL-2.0-or-later; see `LICENSES/autocrop-and-mpv-GPL-2.0.txt` |
+| uosc, Ziggy, and `uosc_textures.ttf` | uosc `5.12.0`, tag commit `748bb238a962f8aecd0af51ee4b46651b58f6c51` | LGPL-2.1-or-later; see `LICENSES/LGPL-2.1.txt`. Ziggy's linked Go-component notices and grants are in `LICENSES/Ziggy-Go-NOTICES.txt` and `LICENSES/Ziggy-Go-PATENTS.txt`. Local changes that disable uosc's network updater are marked in the modified source files. | [Exact source](https://github.com/tomasklaen/uosc/tree/5.12.0). The Windows, Linux, and macOS Ziggy binaries are uosc's unmodified upstream builds of `src/ziggy`. |
+| Material Icons Round / `uosc_icons.otf` | uosc's renamed `MaterialIconsRound-Regular.otf`, byte-identical to Google commit `1c575764826fa5752ddc2bdc6b31ef7cc3233371` | Apache-2.0; see `LICENSES/Material-Icons-NOTICE.txt` and `LICENSES/Apache-2.0.txt`. | [Exact font](https://github.com/google/material-design-icons/blob/1c575764826fa5752ddc2bdc6b31ef7cc3233371/font/MaterialIconsRound-Regular.otf) |
+| thumbfast and reused FFI code | thumbfast commit `9deb0733c4e36938cf90e42ddfb7a19a8b2f4641`, reformatted without functional changes; uosc `lib/utils.lua` marks FFI portions copied from thumbfast | MPL-2.0; see the retained source headers and `LICENSES/thumbfast-MPL-2.0.txt`. | [Exact source](https://github.com/po5/thumbfast/tree/9deb0733c4e36938cf90e42ddfb7a19a8b2f4641) |
+| autocrop.lua | Modified from mpv `TOOLS/lua/autocrop.lua` at v0.41.0 | GPL-2.0-or-later; see the file header and `LICENSE`. | [Upstream source](https://github.com/mpv-player/mpv/blob/v0.41.0/TOOLS/lua/autocrop.lua) |
+| fzy Lua implementation | `portable_config/scripts/uosc/lib/fzy.lua` | MIT; the copyright and permission notice are retained in the file. | Distributed as source within uosc. |
 
-The RIFE 4.25-lite model is pinned separately in `deps.lock.toml` by URL and
-SHA-256. Its redistribution terms must be confirmed before a public workflow
-re-hosts it. Likewise, a release that redistributes an mpv binary must include
-the corresponding source materials and notices required by that exact build.
+## Downloaded for the user at install time
+
+These are not redistributed by mpv-enhanced. The installer fetches each locked
+artifact from its publisher, verifies it, and installs it for the user.
+
+| Component | Pinned version | Publisher and terms |
+| --- | --- | --- |
+| mpv (Windows, macOS) | `0.42.0` official builds, SHA-256 pinned in `deps.lock.toml` | [mpv release](https://github.com/mpv-player/mpv/releases/tag/v0.42.0); GPL. Source is published with the same release. On Linux the distribution's mpv is used instead. |
+| uv | `0.12.5`, SHA-256 pinned in `install.cmd` / `install.sh` | [Astral release](https://github.com/astral-sh/uv/releases/tag/0.12.5); Apache-2.0 or MIT. |
+| CPython (installer and RIFE runtime) | `3.12.13` | Downloaded by uv from python-build-standalone; PSF and bundled-component terms. |
+| VapourSynth | `77` | [PyPI](https://pypi.org/project/VapourSynth/77/); LGPL-2.1-or-later. |
+| vs-rife | `5.7.0` | [PyPI](https://pypi.org/project/vsrife/5.7.0/); MIT. |
+| RIFE 4.25-lite model | `flownet_v4.25.lite.pkl`, SHA-256 `81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1` | [HolyWu model release](https://github.com/HolyWu/vs-rife/releases/tag/model); Practical-RIFE places its trained models under [MIT](https://github.com/hzwer/Practical-RIFE#trained-model). |
+| PyTorch CUDA | `2.12.1+cu130` | BSD-3-Clause; the wheels include NVIDIA CUDA libraries under the [CUDA EULA](https://docs.nvidia.com/cuda/eula/index.html). |
+| Torch-TensorRT | `2.12.1+cu130` | BSD-style license; it does not replace the terms of the proprietary TensorRT dependencies. |
+| TensorRT | `10.16.1.11` | Proprietary; [TensorRT SLA](https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html). The installer requires explicit acceptance before downloading it; `--yes` is not acceptance. |

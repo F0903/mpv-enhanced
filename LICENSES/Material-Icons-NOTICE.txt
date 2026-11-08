@@ -1,0 +1,12 @@
+Material Icons
+Copyright Google LLC
+
+The 400,360-byte uosc_icons.otf asset is uosc's renamed copy of Google's
+MaterialIconsRound-Regular.otf. Google makes Material Icons available under
+the Apache License, Version 2.0. The complete license text is in
+Apache-2.0.txt in this directory. The file byte-matches Google's copy at
+commit 1c575764826fa5752ddc2bdc6b31ef7cc3233371 (2022-08-01).
+
+Source and license information:
+https://github.com/google/material-design-icons/blob/1c575764826fa5752ddc2bdc6b31ef7cc3233371/font/MaterialIconsRound-Regular.otf
+https://github.com/google/material-design-icons/blob/1c575764826fa5752ddc2bdc6b31ef7cc3233371/LICENSE
