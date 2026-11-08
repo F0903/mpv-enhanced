@@ -20,9 +20,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Read the uv pin
+        shell: bash
+        run: echo "UV_PIN=$(sed -n 's/^version=//p' uv.pin)" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.12.5"
+          version: ${{ env.UV_PIN }}
       - run: uv sync --locked
       - run: uv run python -m unittest discover -s tests -v
       - run: uv run ruff check . && uv run ruff format --check .
@@ -59,6 +62,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Require the tag to match pyproject.toml
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "::error::tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
       - name: Publish source release
         env:
           GH_TOKEN: ${{ github.token }}

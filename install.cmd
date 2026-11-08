@@ -1,12 +1,12 @@
 @echo off
 setlocal
 
-rem Pinned uv that runs the installer. Keep the version in sync with install.sh.
-set "UV_VERSION=0.12.5"
-set "UV_SHA256=4c4d49d8738847d9b71ba319e49a5688c93eac0fe6204b1df24e98528dddf39a"
-
+rem Fetches the pinned uv (see uv.pin) and hands over to the Python installer.
 pushd "%~dp0" >nul || exit /b 1
 set "PROJECT_ROOT=%CD%"
+for /f "tokens=1,* delims==" %%A in (uv.pin) do set "PIN_%%A=%%B"
+set "UV_VERSION=%PIN_version%"
+set "UV_SHA256=%PIN_x86_64-pc-windows-msvc%"
 set "UV_DIR=%PROJECT_ROOT%\.bootstrap\uv-%UV_VERSION%-windows-x86_64"
 set "UV_BIN=%UV_DIR%\uv.exe"
 
@@ -18,7 +18,6 @@ if not exist "%UV_BIN%" (
     )
 )
 
-set "MPV_ENHANCED_UV=%UV_BIN%"
 set "UV_PYTHON_INSTALL_DIR=%PROJECT_ROOT%\runtime\controller-python"
 set "UV_PYTHON_NO_REGISTRY=1"
 set "UV_CACHE_DIR=%PROJECT_ROOT%\.uv-cache"

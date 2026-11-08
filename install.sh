@@ -1,16 +1,17 @@
 #!/bin/sh
-# mpv-enhanced bootstrap for Linux and macOS.
-# On Windows shells (Git Bash, MSYS2, Cygwin) it hands over to install.cmd.
+# Fetches the pinned uv (see uv.pin) and hands over to the Python installer.
+# On Windows shells (Git Bash, MSYS2, Cygwin) install.cmd does that instead.
 set -eu
-
-# Pinned uv that runs the installer. Keep the version in sync with install.cmd.
-uv_version=0.12.5
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 fail() {
     printf 'error: %s\n' "$*" >&2
     exit 1
+}
+
+pin() {
+    sed -n "s/^$1=//p" "$project_root/uv.pin"
 }
 
 case "$(uname -s)" in
@@ -22,14 +23,7 @@ case "$(uname -s)" in
     CYGWIN*)
         exec cmd.exe /c call "$(cygpath -w "$project_root/install.cmd")" "$@"
         ;;
-    Linux)
-        if grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
-            printf '%s\n' \
-                'note: this is WSL, so the Linux version will be installed inside WSL.' \
-                '      To install for Windows, run install.cmd from Windows instead.' >&2
-        fi
-        os=unknown-linux-gnu
-        ;;
+    Linux) os=unknown-linux-gnu ;;
     Darwin) os=apple-darwin ;;
     *) fail "unsupported operating system: $(uname -s)" ;;
 esac
@@ -41,12 +35,9 @@ case "$(uname -m)" in
 esac
 
 target="$arch-$os"
-case "$target" in
-    x86_64-unknown-linux-gnu) uv_sha256=68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2 ;;
-    aarch64-apple-darwin) uv_sha256=5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62 ;;
-    x86_64-apple-darwin) uv_sha256=b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8 ;;
-    *) fail "mpv-enhanced does not support $target yet" ;;
-esac
+uv_version=$(pin version)
+uv_sha256=$(pin "$target")
+[ -n "$uv_sha256" ] || fail "mpv-enhanced does not support $target yet"
 
 uv_dir="$project_root/.bootstrap/uv-$uv_version-$target"
 uv_bin="$uv_dir/uv"
@@ -80,9 +71,8 @@ if [ ! -x "$uv_bin" ]; then
     mv "$uv_dir.tmp" "$uv_dir"
 fi
 
-MPV_ENHANCED_UV="$uv_bin"
 UV_PYTHON_INSTALL_DIR="$project_root/runtime/controller-python"
 UV_CACHE_DIR="$project_root/.uv-cache"
-export MPV_ENHANCED_UV UV_PYTHON_INSTALL_DIR UV_CACHE_DIR
+export UV_PYTHON_INSTALL_DIR UV_CACHE_DIR
 cd "$project_root"
 exec "$uv_bin" run --project "$project_root" --locked --no-dev --no-editable mpv-enhanced "$@"

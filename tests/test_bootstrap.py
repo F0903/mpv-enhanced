@@ -1,18 +1,35 @@
-import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "package_and_release.yml"
 
 
 class BootstrapScriptTests(unittest.TestCase):
-    def test_install_scripts_pin_the_same_uv_version(self) -> None:
-        cmd = (ROOT / "install.cmd").read_text(encoding="utf-8")
-        sh = (ROOT / "install.sh").read_text(encoding="utf-8")
-        cmd_version = re.search(r'set "UV_VERSION=([^"]+)"', cmd)
-        sh_version = re.search(r"^uv_version=(\S+)$", sh, re.MULTILINE)
-        assert cmd_version and sh_version
-        self.assertEqual(cmd_version.group(1), sh_version.group(1))
+    def test_uv_is_pinned_only_in_uv_pin(self) -> None:
+        pin = dict(
+            line.split("=", 1)
+            for line in (ROOT / "uv.pin").read_text(encoding="utf-8").splitlines()
+        )
+        version = pin.pop("version")
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(
+            set(pin),
+            {
+                "x86_64-pc-windows-msvc",
+                "x86_64-unknown-linux-gnu",
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+            },
+        )
+        for digest in pin.values():
+            self.assertRegex(digest, r"^[0-9a-f]{64}$")
+
+        for path in (ROOT / "install.cmd", ROOT / "install.sh", WORKFLOW):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertNotRegex(text, r"\b[0-9a-f]{64}\b")
+                self.assertNotIn(version, text)
 
 
 if __name__ == "__main__":

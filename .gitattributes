@@ -2,6 +2,7 @@
 # CRLF, and cmd.exe can lose `call :label` targets in LF-only batch files.
 *.sh text eol=lf
 *.cmd text eol=crlf
+uv.pin text eol=lf
 
 # Upstream license texts may contain historical trailing whitespace.
 LICENSES/** -whitespace
