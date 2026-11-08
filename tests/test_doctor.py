@@ -11,6 +11,7 @@ from mpv_enhanced_installer.receipt import (
     InstallationReceipt,
     InstalledComponent,
 )
+from mpv_enhanced_installer.version import VERSION
 
 MODEL = b"locked-model"
 
@@ -25,7 +26,6 @@ def test_manifest() -> Manifest:
         return {
             "url": f"https://example.invalid/{destination}",
             "sha256": hashlib.sha256(content).hexdigest(),
-            "size": len(content),
             "archive": archive,
             "destination": destination,
         }
@@ -33,24 +33,26 @@ def test_manifest() -> Manifest:
     return Manifest.from_data(
         {
             "schema_version": 1,
-            "release": {"version": "test"},
             "components": {
                 "mpv": {
                     "kind": "download",
-                    "platforms": ["windows"],
-                    "artifacts": {
-                        "windows-x86_64": artifact(
-                            b"archive",
-                            archive="zip",
-                            destination=".",
-                        )
+                    "os": {
+                        "windows": {
+                            "arch": {
+                                "x86_64": artifact(
+                                    b"archive",
+                                    archive="zip",
+                                    destination=".",
+                                )
+                            }
+                        }
                     },
                 },
                 "system-mpv": {
                     "kind": "system",
                     "command": "mpv",
                     "min_version": "0.36.0",
-                    "platforms": ["linux"],
+                    "os": {"linux": {"arch": ["x86_64"]}},
                 },
                 "portable-config": {
                     "kind": "local",
@@ -60,37 +62,41 @@ def test_manifest() -> Manifest:
                 "rife-runtime": {
                     "kind": "uv-runtime",
                     "project": "runtime/rife",
-                    "lockfile": "runtime/rife/uv.lock",
-                    "python_version": "3.12.13",
                 },
                 "model": {
                     "kind": "download",
-                    "artifacts": {
-                        "windows-x86_64": artifact(
-                            MODEL,
-                            archive="none",
-                            destination=(
-                                "runtime/venv/Lib/site-packages/vsrife/models/model.pkl"
-                            ),
-                        )
+                    "os": {
+                        "windows": {
+                            "arch": {
+                                "x86_64": artifact(
+                                    MODEL,
+                                    archive="none",
+                                    destination=(
+                                        "runtime/venv/Lib/site-packages/"
+                                        "vsrife/models/model.pkl"
+                                    ),
+                                )
+                            }
+                        }
                     },
                 },
             },
-        },
-        {
-            "schema_version": 1,
             "profiles": {
                 "core": {
                     "components": ["system-mpv", "mpv", "portable-config"],
-                    "platforms": ["windows-x86_64", "linux-x86_64"],
+                    "os": {
+                        "windows": {"arch": ["x86_64"]},
+                        "linux": {"arch": ["x86_64"]},
+                    },
                 },
                 "rife": {
                     "extends": "core",
                     "components": ["rife-runtime", "model"],
-                    "platforms": ["windows-x86_64"],
+                    "os": {"windows": {"arch": ["x86_64"]}},
                 },
             },
         },
+        python_version="3.12.13",
     )
 
 
@@ -110,7 +116,7 @@ def write_receipt(
     platform: str = "windows-x86_64",
 ) -> None:
     InstallationReceipt.create(
-        release="test",
+        release=VERSION,
         profile=profile,
         platform=platform,
         components=tuple(
@@ -183,7 +189,7 @@ class DoctorTests(unittest.TestCase):
                 ["mpv", "portable-config", "rife-runtime", "model"],
             )
 
-            with patch.dict("os.environ", {"MPV_ENHANCED_UV": "pinned-uv"}):
+            with patch.dict("os.environ", {"UV": "pinned-uv"}):
                 checks = run_doctor(
                     test_manifest(),
                     platform=PlatformInfo("windows", "x86_64"),

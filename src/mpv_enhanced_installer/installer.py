@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import uuid
@@ -14,7 +15,9 @@ from .downloads import ArtifactCache
 from .errors import InstallerError, OfflineRuntimeUnsupportedError, PromotionError
 from .manifest import (
     Component,
+    GpuRequirement,
     Manifest,
+    ResolvedProfile,
     SystemProgram,
     parse_version,
     validate_relative_path,
@@ -22,6 +25,7 @@ from .manifest import (
 from .platforms import PlatformInfo
 from .receipt import InstallationReceipt, InstalledComponent
 from .runtime import UvRuntimeBuilder
+from .version import VERSION
 
 DEFAULT_PRESERVED_PATHS = (
     "portable_config/mpv-local.conf",
@@ -73,6 +77,31 @@ def check_system_program(
     return path, ".".join(map(str, version))
 
 
+def check_gpu(
+    gpu: GpuRequirement,
+    *,
+    run: Callable[[Sequence[str]], str] = _run_output,
+    which: Callable[[str], str | None] = shutil.which,
+) -> str:
+    """Return the name of a graphics card meeting the requirement, or raise."""
+    advice = "choose another profile"
+    tool = which("nvidia-smi")
+    if tool is None:
+        raise InstallerError(
+            f"this profile needs {gpu.requirement}, but no NVIDIA driver was "
+            f"found; {advice}"
+        )
+    output = run((tool, "--query-gpu=name", "--format=csv,noheader"))
+    names = [line.strip() for line in output.splitlines() if line.strip()]
+    for name in names:
+        if re.search(gpu.matches, name):
+            return name
+    found = ", ".join(names) or "no GPU"
+    raise InstallerError(
+        f"this profile needs {gpu.requirement}, but found {found}; {advice}"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class InstallResult:
     install_dir: Path
@@ -92,6 +121,7 @@ class Installer:
         platform: PlatformInfo | None = None,
         runtime_builder: UvRuntimeBuilder | None = None,
         system_check: Callable[[SystemProgram], tuple[str, str]] = check_system_program,
+        gpu_check: Callable[[GpuRequirement], str] = check_gpu,
         preserved_paths: tuple[str, ...] = DEFAULT_PRESERVED_PATHS,
     ) -> None:
         self.manifest = manifest
@@ -100,6 +130,7 @@ class Installer:
         self.platform = platform or PlatformInfo.detect()
         self.runtime_builder = runtime_builder or UvRuntimeBuilder()
         self.system_check = system_check
+        self.gpu_check = gpu_check
         self.preserved_paths = tuple(
             validate_relative_path(item, "preserved path") for item in preserved_paths
         )
@@ -150,10 +181,10 @@ class Installer:
                     target_root=target,
                     platform=self.platform,
                 )
-            self._write_managed_profile(staging, profile.name)
+            self._write_managed_profile(staging, profile)
             self._preserve_user_files(target, staging)
             receipt = InstallationReceipt.create(
-                release=self.manifest.version,
+                release=VERSION,
                 profile=profile.name,
                 platform=self.platform.key,
                 components=tuple(installed_components),
@@ -192,6 +223,14 @@ class Installer:
                 name=component.name, version=version, kind="system", source=path
             )
 
+        if component.kind == "gpu":
+            assert component.gpu is not None
+            return InstalledComponent(
+                name=component.name,
+                version=self.gpu_check(component.gpu),
+                kind="gpu",
+            )
+
         if component.kind == "uv-runtime":
             assert component.runtime is not None
             source = self._local_source(component.runtime.project, component.name)
@@ -199,7 +238,6 @@ class Installer:
             _copy_local(source, destination)
             self.runtime_builder.build(
                 component.runtime,
-                source_root=self.source_root,
                 staging_root=staging,
                 project_directory=destination,
                 platform=self.platform,
@@ -217,10 +255,6 @@ class Installer:
         cached = self.cache.fetch(artifact, offline=offline)
         destination = _inside(staging, artifact.destination)
         if artifact.archive == "none":
-            if artifact.strip_components:
-                raise InstallerError(
-                    f"non-archive component {component.name!r} cannot strip components"
-                )
             # vsrife's wheel ships 0-byte model placeholders; only those may be
             # replaced, so a real collision between components still fails.
             if destination.exists() and not (
@@ -239,7 +273,6 @@ class Installer:
                 cached,
                 destination,
                 archive_type=artifact.archive,
-                strip_components=artifact.strip_components,
                 exclude=artifact.exclude,
             )
         return InstalledComponent(
@@ -269,14 +302,19 @@ class Installer:
             )
         return source
 
-    def _write_managed_profile(self, staging: Path, profile_name: str) -> None:
+    def _write_managed_profile(self, staging: Path, profile: ResolvedProfile) -> None:
         portable_config = staging / "portable_config"
         if not portable_config.is_dir():
             return
+        settings = {
+            "tensorrt": "tensorrt" in profile.extras,
+            **profile.settings,
+            **{c.config_key: c.version for c in profile.components if c.config_key},
+        }
         destination = portable_config / "rife_profile.py"
         destination.write_text(
             "# Generated by mpv-enhanced; edit rife_config_local.py instead.\n"
-            f"tensorrt = {profile_name == 'rife-tensorrt'}\n",
+            + "".join(f"{key} = {value!r}\n" for key, value in settings.items()),
             encoding="utf-8",
             newline="\n",
         )

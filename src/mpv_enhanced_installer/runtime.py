@@ -59,25 +59,14 @@ class UvRuntimeBuilder:
         self,
         runtime: UvRuntime,
         *,
-        source_root: Path,
         staging_root: Path,
         project_directory: Path,
         platform: PlatformInfo,
         cache_root: Path,
         offline: bool,
     ) -> str:
-        source_lock = _inside(source_root, runtime.lockfile)
-        if not source_lock.is_file():
-            raise RuntimeSetupError(f"runtime lockfile does not exist: {source_lock}")
-        source_project = _inside(source_root, runtime.project)
-        try:
-            lock_relative = source_lock.relative_to(source_project)
-        except ValueError as exc:
-            raise RuntimeSetupError(
-                "the uv runtime lockfile must be inside its project directory"
-            ) from exc
-        staged_lock = project_directory / lock_relative
-        if not staged_lock.is_file() or staged_lock.name != "uv.lock":
+        staged_lock = project_directory / "uv.lock"
+        if not staged_lock.is_file():
             raise RuntimeSetupError(
                 f"the staged uv project has no uv.lock at {staged_lock}"
             )
@@ -140,17 +129,10 @@ class UvRuntimeBuilder:
         return vsscript_path
 
     def _find_uv(self, staging_root: Path, platform: PlatformInfo) -> str:
-        # install.cmd/install.sh export their pinned uv here.
-        uv = (
-            self.uv_executable
-            or os.environ.get("MPV_ENHANCED_UV")
-            or shutil.which("uv")
-        )
+        # `uv run` exports its own path as UV, so this is the pinned bootstrap uv.
+        uv = self.uv_executable or os.environ.get("UV") or shutil.which("uv")
         if not uv:
-            raise RuntimeSetupError(
-                "uv is unavailable; run install.cmd or install.sh, "
-                "or set MPV_ENHANCED_UV"
-            )
+            raise RuntimeSetupError("uv is unavailable; run install.cmd or install.sh")
         return uv
 
     def write_launcher(

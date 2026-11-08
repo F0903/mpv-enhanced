@@ -12,13 +12,21 @@ from typing import TextIO
 from .doctor import run_doctor
 from .downloads import ArtifactCache, Downloader, download_url
 from .errors import InstallerError
-from .installer import Installer
+from .installer import Installer, check_gpu, check_system_program
 from .manifest import Manifest
-from .platforms import PlatformInfo
+from .platforms import PlatformInfo, running_in_wsl
 
 NVIDIA_TENSORRT_SLA_URL = (
     "https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html"
 )
+NVIDIA_SOFTWARE_LICENSE_URL = (
+    "https://www.nvidia.com/en-us/agreements/enterprise-software/"
+    "nvidia-software-license-agreement/"
+)
+NVIDIA_LICENSES = {
+    "tensorrt": ("NVIDIA TensorRT SLA", NVIDIA_TENSORRT_SLA_URL),
+    "rtx": ("NVIDIA Software License Agreement", NVIDIA_SOFTWARE_LICENSE_URL),
+}
 
 
 def _manifest_arguments(
@@ -28,24 +36,15 @@ def _manifest_arguments(
 ) -> None:
     default = argparse.SUPPRESS if subcommand else None
     parser.add_argument(
-        "--deps",
-        "--deps-manifest",
-        dest="deps",
+        "--manifest",
         type=Path,
-        default=default if subcommand else Path("deps.lock.toml"),
-    )
-    parser.add_argument(
-        "--profiles",
-        "--profiles-manifest",
-        dest="profiles",
-        type=Path,
-        default=default if subcommand else Path("profiles.toml"),
+        default=default if subcommand else Path("manifest.toml"),
     )
     parser.add_argument(
         "--source-root",
         type=Path,
         default=default,
-        help="root for local components (defaults to the deps lock directory)",
+        help="root for local components (defaults to the manifest's directory)",
     )
     parser.add_argument(
         "--platform",
@@ -113,8 +112,8 @@ def main(
         if not arguments:
             arguments = ["install"]
         args = parser.parse_args(arguments)
-        manifest = Manifest.load(args.deps, args.profiles)
-        source_root = (args.source_root or args.deps.parent).resolve()
+        manifest = Manifest.load(args.manifest)
+        source_root = (args.source_root or args.manifest.parent).resolve()
         platform = (
             PlatformInfo.parse(args.platform_key)
             if args.platform_key
@@ -135,7 +134,20 @@ def main(
                 print(f"[{marker}] {check.name}: {check.detail}", file=stdout)
             return 0 if all(item.ok for item in checks) else 1
         if args.command == "install":
-            profile_name = _install_profile(args, manifest, stdin, stdout)
+            if running_in_wsl():
+                print(
+                    "note: this is WSL, so the Linux version will be installed "
+                    "inside WSL. To install for Windows, run install.cmd from "
+                    "Windows instead.",
+                    file=stderr,
+                )
+            profile_name = _install_profile(args, manifest, platform, stdin, stdout)
+            # Before the licence prompt: no point accepting terms for a GPU that can't run it.
+            for component in manifest.resolve_profile(
+                profile_name, platform
+            ).components:
+                if component.gpu is not None:
+                    check_gpu(component.gpu)
             _require_nvidia_license_acceptance(
                 args,
                 manifest,
@@ -181,16 +193,36 @@ def main(
     except InstallerError as exc:
         print(f"error: {exc}", file=stderr)
         return 2
-    return 2
+
+
+def _unavailable_reason(
+    manifest: Manifest,
+    name: str,
+    platform: PlatformInfo,
+) -> str | None:
+    """Explain why a profile can't be installed on this machine, if it can't."""
+    try:
+        profile = manifest.resolve_profile(name, platform)
+        # Hardware and programs can only be probed on the real host platform.
+        if platform == PlatformInfo.detect():
+            for component in profile.components:
+                if component.gpu is not None:
+                    check_gpu(component.gpu)
+                if component.system is not None:
+                    check_system_program(component.system)
+    except InstallerError as exc:
+        return str(exc)
+    return None
 
 
 def _list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) -> int:
     for name, profile in manifest.profiles.items():
-        try:
-            resolved = manifest.resolve_profile(name, platform)
-            status = f"{len(resolved.components)} components"
-        except InstallerError as exc:
-            status = f"unavailable: {exc}"
+        reason = _unavailable_reason(manifest, name, platform)
+        if reason is None:
+            count = len(manifest.resolve_profile(name, platform).components)
+            status = f"{count} components"
+        else:
+            status = f"unavailable: {reason}"
         print(f"{name}\t{status}\t{profile.description}", file=output)
     return 0
 
@@ -198,6 +230,7 @@ def _list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) -
 def _install_profile(
     args: argparse.Namespace,
     manifest: Manifest,
+    platform: PlatformInfo,
     stdin: TextIO,
     stdout: TextIO,
 ) -> str:
@@ -210,15 +243,34 @@ def _install_profile(
         return selected
     if not stdin.isatty():
         raise InstallerError("--profile is required when input is not interactive")
-    names = list(manifest.profiles)
+    reasons = {
+        name: _unavailable_reason(manifest, name, platform)
+        for name in manifest.profiles
+    }
+    names = [name for name, reason in reasons.items() if reason is None]
+    if not names:
+        raise InstallerError(
+            "no profile can be installed on this machine:\n  "
+            + "\n  ".join(f"{name}: {reason}" for name, reason in reasons.items())
+        )
+    default = (
+        manifest.default_profile if manifest.default_profile in names else names[0]
+    )
     print("Choose an installation profile:", file=stdout)
-    for index, name in enumerate(names, 1):
+    for name, reason in reasons.items():
+        if reason is not None:
+            print(f"  -  {name} — unavailable: {reason}", file=stdout)
+            continue
+        marker = " (default)" if name == default else ""
         print(
-            f"  {index}. {name} — {manifest.profiles[name].description}",
+            f"  {names.index(name) + 1}. {name}{marker} — "
+            f"{manifest.profiles[name].description}",
             file=stdout,
         )
     print("Profile number: ", end="", flush=True, file=stdout)
     answer = stdin.readline().strip()
+    if not answer:
+        return default
     try:
         index = int(answer)
         if index < 1:
@@ -236,36 +288,34 @@ def _require_nvidia_license_acceptance(
     stdin: TextIO,
     stdout: TextIO,
 ) -> None:
-    """Require distinct, explicit consent before installing TensorRT packages."""
+    """Require distinct, explicit consent before installing NVIDIA's packages."""
     profile = manifest.resolve_profile(profile_name, platform)
-    requires_tensorrt = any(
-        component.kind == "uv-runtime"
-        and component.runtime is not None
-        and any(extra.casefold() == "tensorrt" for extra in component.runtime.extras)
-        for component in profile.components
-    )
-    if not requires_tensorrt or args.accept_nvidia_license:
+    licenses = [
+        NVIDIA_LICENSES[extra] for extra in profile.extras if extra in NVIDIA_LICENSES
+    ]
+    if not licenses or args.accept_nvidia_license:
         return
 
+    names = " and ".join(name for name, _ in licenses)
     if args.yes or not stdin.isatty():
+        urls = ", ".join(url for _, url in licenses)
         raise InstallerError(
-            f"profile {profile_name!r} requires acceptance of the NVIDIA TensorRT "
-            f"SLA at {NVIDIA_TENSORRT_SLA_URL}; review it and re-run with "
-            "--accept-nvidia-license (--yes does not accept third-party licenses)"
+            f"profile {profile_name!r} requires acceptance of the {names} at "
+            f"{urls}; review it and re-run with --accept-nvidia-license "
+            "(--yes does not accept third-party licenses)"
         )
 
-    print("This profile installs NVIDIA TensorRT packages.", file=stdout)
-    print(f"Review the NVIDIA TensorRT SLA: {NVIDIA_TENSORRT_SLA_URL}", file=stdout)
+    print("This profile installs proprietary NVIDIA packages.", file=stdout)
+    for name, url in licenses:
+        print(f"Review the {name}: {url}", file=stdout)
     print(
-        "Type 'accept' to accept the SLA and continue: ",
+        "Type 'accept' to accept and continue: ",
         end="",
         flush=True,
         file=stdout,
     )
     if stdin.readline().strip() != "accept":
-        raise InstallerError(
-            "NVIDIA TensorRT SLA was not accepted; installation cancelled"
-        )
+        raise InstallerError(f"{names} was not accepted; installation cancelled")
 
 
 def _default_cache_dir() -> Path:

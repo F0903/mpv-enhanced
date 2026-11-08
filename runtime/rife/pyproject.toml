@@ -14,6 +14,9 @@ tensorrt = [
     "tensorrt==10.16.1.11",
     "torch-tensorrt==2.12.1",
 ]
+rtx = [
+    "nvidia-vfx==0.2.0.0",
+]
 
 [tool.uv]
 package = false
@@ -30,6 +33,7 @@ required-environments = [
 torch = { index = "pytorch-cu130" }
 torch-tensorrt = { index = "pytorch-cu130" }
 tensorrt = { index = "nvidia" }
+nvidia-vfx = { index = "nvidia" }
 
 [[tool.uv.index]]
 name = "pytorch-cu130"

@@ -12,10 +12,6 @@ class UvRuntimeTests(unittest.TestCase):
     def test_runtime_is_app_local_locked_and_relocatable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source_root = root / "source"
-            source_project = source_root / "runtime" / "rife"
-            source_project.mkdir(parents=True)
-            (source_project / "uv.lock").write_text("version = 1", encoding="utf-8")
             staging = root / "staging"
             project = staging / "runtime" / "rife"
             project.mkdir(parents=True)
@@ -31,7 +27,6 @@ class UvRuntimeTests(unittest.TestCase):
             builder = UvRuntimeBuilder(uv_executable="pinned-uv", runner=runner)
             runtime = UvRuntime(
                 project="runtime/rife",
-                lockfile="runtime/rife/uv.lock",
                 environment="runtime/venv",
                 python_version="3.12.13",
                 extras=("tensorrt",),
@@ -39,7 +34,6 @@ class UvRuntimeTests(unittest.TestCase):
 
             result = builder.build(
                 runtime,
-                source_root=source_root,
                 staging_root=staging,
                 project_directory=project,
                 platform=PlatformInfo("windows", "x86_64"),
@@ -106,7 +100,6 @@ class UvRuntimeTests(unittest.TestCase):
     def test_retarget_points_the_venv_at_the_promoted_python(self) -> None:
         runtime = UvRuntime(
             project="runtime/rife",
-            lockfile="runtime/rife/uv.lock",
             environment="runtime/venv",
             python_version="3.12.13",
             extras=(),

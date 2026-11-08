@@ -18,5 +18,3 @@ __all__ = [
     "Profile",
     "ResolvedProfile",
 ]
-
-__version__ = "0.1.0"

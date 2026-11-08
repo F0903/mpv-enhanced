@@ -9,10 +9,11 @@ from pathlib import Path
 
 from .downloads import sha256_file
 from .errors import InstallerError
-from .installer import check_system_program
+from .installer import check_gpu, check_system_program
 from .manifest import Component, Manifest, ResolvedProfile
 from .platforms import PlatformInfo
 from .receipt import RECEIPT_FILENAME, InstallationReceipt
+from .version import VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +36,7 @@ def run_doctor(
     checks: list[DoctorCheck] = [
         DoctorCheck("platform", True, platform.key),
         DoctorCheck(
-            "manifests",
+            "manifest",
             True,
             f"{len(manifest.components)} components, {len(manifest.profiles)} profiles",
         ),
@@ -69,12 +70,12 @@ def run_doctor(
                         f"receipt records {receipt.platform}, current target is {platform.key}",
                     )
                 )
-            if receipt.release != manifest.version:
+            if receipt.release != VERSION:
                 checks.append(
                     DoctorCheck(
                         "receipt:release",
                         False,
-                        f"receipt records {receipt.release}, manifests describe {manifest.version}",
+                        f"receipt records {receipt.release}, this installer is {VERSION}",
                     )
                 )
         except InstallerError as exc:
@@ -110,8 +111,16 @@ def run_doctor(
                 )
             except InstallerError as exc:
                 checks.append(DoctorCheck(f"system:{component.name}", False, str(exc)))
+        if component.kind == "gpu":
+            assert component.gpu is not None
+            try:
+                checks.append(
+                    DoctorCheck(f"gpu:{component.name}", True, check_gpu(component.gpu))
+                )
+            except InstallerError as exc:
+                checks.append(DoctorCheck(f"gpu:{component.name}", False, str(exc)))
         if component.kind == "uv-runtime" and not reported_uv:
-            uv_path = os.environ.get("MPV_ENHANCED_UV") or shutil.which("uv")
+            uv_path = os.environ.get("UV") or shutil.which("uv")
             checks.append(
                 DoctorCheck(
                     "runtime:uv", uv_path is not None, uv_path or "uv is unavailable"
@@ -173,7 +182,6 @@ def _audit_installed_files(
                     _locked_file_check(
                         f"installed:{component.name}",
                         install_root.joinpath(*artifact.destination.split("/")),
-                        expected_size=artifact.size,
                         expected_sha256=artifact.sha256,
                     )
                 )
@@ -203,21 +211,14 @@ def _locked_file_check(
     name: str,
     path: Path,
     *,
-    expected_size: int,
     expected_sha256: str,
 ) -> DoctorCheck:
     try:
-        actual_size = path.stat().st_size
         actual_sha256 = sha256_file(path)
     except OSError as exc:
         return DoctorCheck(name, False, f"{path}: {exc}")
-    ok = actual_size == expected_size and actual_sha256 == expected_sha256
+    ok = actual_sha256 == expected_sha256
     detail = (
-        str(path)
-        if ok
-        else (
-            f"{path}: expected {expected_size} bytes/{expected_sha256}, got "
-            f"{actual_size} bytes/{actual_sha256}"
-        )
+        str(path) if ok else f"{path}: expected {expected_sha256}, got {actual_sha256}"
     )
     return DoctorCheck(name, ok, detail)

@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "mpv-enhanced-installer"
 version = "0.1.0"
-description = "Verified, lockfile-driven installer for mpv-enhanced"
+description = "Installer for mpv-enhanced"
 readme = "README.md"
 license = "GPL-2.0-or-later"
 license-files = ["LICENSE"]

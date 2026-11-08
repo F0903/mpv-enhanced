@@ -1,0 +1,133 @@
+schema_version = 1
+default_profile = "rtx-high"
+
+# `settings` are written to the generated rife_profile.py for the interpolation script.
+[profiles.rtx-high]
+description = "Best quality. RTX Video Frame Generation, High; needs an NVIDIA RTX 40 series or newer GPU"
+extends = "core"
+components = ["nvidia-rtx-gpu", "rife-runtime"]
+extras = ["rtx"]
+settings.interpolator = "rtx"
+settings.rtx_mode = "HIGH"
+os.windows.arch = ["x86_64"]
+
+[profiles.rtx-medium]
+description = "RTX Video Frame Generation, Medium; faster than High on the same GPUs"
+extends = "rtx-high"
+settings.rtx_mode = "MEDIUM"
+
+[profiles.rtx-low]
+description = "RTX Video Frame Generation, Low; fastest, with visible artifacts in fast motion"
+extends = "rtx-high"
+settings.rtx_mode = "LOW"
+
+# The menu lists profiles in this order. If the default can't run on a machine,
+# the first one that can becomes the default.
+# `extras` are the optional dependency groups of the profile's uv runtime.
+[profiles.rife-tensorrt]
+description = "RIFE CUDA plus TensorRT acceleration; engines are compiled on first use"
+extends = "rife-cuda"
+extras = ["tensorrt"]
+
+[profiles.rife-cuda]
+description = "Core plus VapourSynth and CUDA-backed RIFE interpolation"
+extends = "core"
+components = ["system-mpv-vapoursynth", "nvidia-gpu", "rife-runtime", "rife-model", "rife-model-full"]
+os.windows.arch = ["x86_64"]
+os.linux.arch = ["x86_64"]
+
+# A component whose `os` table omits the host OS is skipped, so `mpv` is
+# downloaded on Windows/macOS and `system-mpv` is checked on Linux.
+[profiles.core]
+description = "mpv and the enhanced portable configuration, without Python or AI dependencies"
+components = ["system-mpv", "mpv", "portable-config"]
+os.windows.arch = ["x86_64"]
+os.linux.arch = ["x86_64"]
+os.macos.arch = ["aarch64", "x86_64"]
+
+# In a download's url and destination, `{version}` is the component's version
+# and `{site_packages}` is the RIFE environment's site-packages directory.
+# Fields set on the component apply to every platform listed under `os`.
+[components.mpv]
+kind = "download"
+version = "0.42.0"
+
+# mingw "full" needs no VC++ redistributable and has the VapourSynth R74+ loader.
+[components.mpv.os.windows.arch.x86_64]
+url = "https://github.com/mpv-player/mpv/releases/download/v{version}/mpv-v{version}-x86_64-w64-mingw32-full.zip"
+sha256 = "c7d4ff6a67dd33659f71d81efa56335fea2213c7522fd67235f3abf0d9ea1dbd"
+archive = "zip"
+exclude = [
+    "libbluray-awt-j2se-1.5.1.jar",
+    "libbluray-j2se-1.5.1.jar",
+    "mpv-register.bat",
+    "mpv-unregister.bat",
+]
+
+[components.mpv.os.macos.arch.aarch64]
+url = "https://github.com/mpv-player/mpv/releases/download/v{version}/mpv-v{version}-macos-15-arm.zip"
+sha256 = "be1b8d2445e6880860869c080b8710dee189721f1fa4689840db6a2c10d7be69"
+archive = "zip+tar.gz"
+
+[components.mpv.os.macos.arch.x86_64]
+url = "https://github.com/mpv-player/mpv/releases/download/v{version}/mpv-v{version}-macos-15-intel.zip"
+sha256 = "2d2f34350ff844b6014c35f21ca142937275e19c0c673150a8564fcd2f3bfa14"
+archive = "zip+tar.gz"
+
+# NVIDIA's frame generation runs on Ada (RTX 40) and Blackwell (RTX 50) or newer.
+[components.nvidia-rtx-gpu]
+kind = "gpu"
+matches = 'GeForce RTX [4-9]\d{3}|RTX \d+ Ada|RTX PRO \d+'
+requirement = "an NVIDIA RTX 40 series or newer GPU"
+os.windows.arch = ["x86_64"]
+
+[components.nvidia-gpu]
+kind = "gpu"
+matches = 'GeForce|Quadro|Tesla|RTX|GRID'
+requirement = "an NVIDIA GPU"
+os.windows.arch = ["x86_64"]
+os.linux.arch = ["x86_64"]
+
+# mpv publishes no Linux builds, so Linux uses the distribution's mpv.
+[components.system-mpv]
+kind = "system"
+command = "mpv"
+min_version = "0.36.0"
+os.linux.arch = ["x86_64"]
+
+# RIFE needs mpv's vapoursynth filter, which loads VapourSynth R74+ at runtime.
+[components.system-mpv-vapoursynth]
+kind = "system"
+command = "mpv"
+min_version = "0.42.0"
+check_args = ["--vf=help"]
+check_contains = "vapoursynth"
+os.linux.arch = ["x86_64"]
+
+[components.portable-config]
+kind = "local"
+path = "portable_config"
+destination = "portable_config"
+
+# Python comes from .python-version, and the packages from this project's uv.lock.
+[components.rife-runtime]
+kind = "uv-runtime"
+project = "runtime/rife"
+
+# `config_key` writes this component's version to the generated rife_profile.py.
+[components.rife-model]
+kind = "download"
+version = "4.25.lite"
+url = "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v{version}.pkl"
+sha256 = "81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1"
+destination = "{site_packages}/vsrife/models/flownet_v{version}.pkl"
+config_key = "rife_model"
+os.windows.arch = ["x86_64"]
+os.linux.arch = ["x86_64"]
+
+# Selected with rife_model = "4.25" in rife_config_local.py. Upstream says 4.25
+# significantly improved anime scenes. `extends` copies all but `config_key`.
+[components.rife-model-full]
+extends = "rife-model"
+version = "4.25"
+sha256 = "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2"

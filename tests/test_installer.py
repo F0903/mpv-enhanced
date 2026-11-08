@@ -10,17 +10,21 @@ from mpv_enhanced_installer.errors import (
     InstallerError,
     OfflineRuntimeUnsupportedError,
 )
-from mpv_enhanced_installer.installer import Installer, check_system_program
-from mpv_enhanced_installer.manifest import Manifest, SystemProgram
+from mpv_enhanced_installer.installer import (
+    Installer,
+    check_gpu,
+    check_system_program,
+)
+from mpv_enhanced_installer.manifest import GpuRequirement, Manifest, SystemProgram
 from mpv_enhanced_installer.platforms import PlatformInfo
 from mpv_enhanced_installer.receipt import InstallationReceipt
+from mpv_enhanced_installer.version import VERSION
 
 
 def local_manifest(path: str = "portable_config") -> Manifest:
     return Manifest.from_data(
         {
             "schema_version": 1,
-            "release": {"version": "1.2.3"},
             "components": {
                 "config": {
                     "kind": "local",
@@ -29,18 +33,56 @@ def local_manifest(path: str = "portable_config") -> Manifest:
                     "destination": "portable_config",
                 }
             },
-        },
-        {
-            "schema_version": 1,
             "profiles": {
                 "core": {"components": ["config"]},
                 "rife-tensorrt": {
                     "extends": "core",
                     "components": [],
+                    "extras": ["tensorrt"],
                 },
             },
         },
     )
+
+
+class GpuCheckTests(unittest.TestCase):
+    REQUIRED = (
+        Manifest.load(Path(__file__).parents[1] / "manifest.toml")
+        .components["nvidia-rtx-gpu"]
+        .gpu
+    )
+
+    def check(self, names: str, tool: str | None = "nvidia-smi") -> str:
+        assert isinstance(self.REQUIRED, GpuRequirement)
+        return check_gpu(self.REQUIRED, run=lambda _: names, which=lambda _: tool)
+
+    def test_supported_cards_are_accepted(self) -> None:
+        for name in (
+            "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "NVIDIA GeForce RTX 4080",
+            "NVIDIA GeForce RTX 5090",
+            "NVIDIA RTX 6000 Ada Generation",
+            "NVIDIA RTX PRO 6000 Blackwell",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(self.check(name), name)
+
+    def test_any_supported_card_in_the_system_is_enough(self) -> None:
+        names = "NVIDIA GeForce GTX 1050\nNVIDIA GeForce RTX 4070\n"
+        self.assertEqual(self.check(names), "NVIDIA GeForce RTX 4070")
+
+    def test_older_and_missing_cards_are_rejected_with_a_way_forward(self) -> None:
+        for names, tool in (
+            ("NVIDIA GeForce RTX 3080", "nvidia-smi"),
+            ("NVIDIA GeForce GTX 1660", "nvidia-smi"),
+            ("Quadro RTX 4000", "nvidia-smi"),
+            ("", None),
+        ):
+            with (
+                self.subTest(names=names),
+                self.assertRaisesRegex(InstallerError, "choose another profile"),
+            ):
+                self.check(names, tool)
 
 
 class TransactionalInstallerTests(unittest.TestCase):
@@ -79,7 +121,7 @@ class TransactionalInstallerTests(unittest.TestCase):
                 ),
             )
             receipt = InstallationReceipt.load(target)
-            self.assertEqual(receipt.release, "1.2.3")
+            self.assertEqual(receipt.release, VERSION)
             self.assertEqual(receipt.profile, "core")
             self.assertEqual([item.name for item in receipt.components], ["config"])
 
@@ -167,6 +209,36 @@ class TransactionalInstallerTests(unittest.TestCase):
                 (target / "portable_config" / "rife_profile.py").read_text(),
             )
 
+    def test_component_config_key_writes_its_version_to_the_profile(self) -> None:
+        artifact = {"url": "https://example.invalid/m", "sha256": "0" * 64}
+        manifest = Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {
+                    "model": {
+                        "kind": "download",
+                        "version": "9.9.lite",
+                        "config_key": "rife_model",
+                        "os": {"windows": {"arch": {"x86_64": artifact}}},
+                    }
+                },
+                "profiles": {"rife": {"components": ["model"]}},
+            },
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "portable_config").mkdir()
+            installer = Installer(
+                manifest,
+                ArtifactCache(root / "cache"),
+                source_root=root,
+                platform=PlatformInfo("windows", "x86_64"),
+            )
+            installer._write_managed_profile(root, manifest.resolve_profile("rife"))
+            text = (root / "portable_config" / "rife_profile.py").read_text()
+        self.assertIn("rife_model = '9.9.lite'", text)
+        self.assertIn("tensorrt = False", text)
+
     def test_offline_uv_runtime_is_rejected_before_staging(self) -> None:
         manifest = Manifest.from_data(
             {
@@ -175,15 +247,11 @@ class TransactionalInstallerTests(unittest.TestCase):
                     "runtime": {
                         "kind": "uv-runtime",
                         "project": "runtime/rife",
-                        "lockfile": "runtime/rife/uv.lock",
-                        "python_version": "3.12.13",
                     }
                 },
-            },
-            {
-                "schema_version": 1,
                 "profiles": {"rife": {"components": ["runtime"]}},
             },
+            python_version="3.12.13",
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -220,9 +288,6 @@ class TransactionalInstallerTests(unittest.TestCase):
                         "destination": "portable_config",
                     },
                 },
-            },
-            {
-                "schema_version": 1,
                 "profiles": {"core": {"components": ["system-mpv", "config"]}},
             },
         )
@@ -274,20 +339,20 @@ class TransactionalInstallerTests(unittest.TestCase):
                     },
                     "model": {
                         "kind": "download",
-                        "artifacts": {
-                            "any": {
-                                "url": "https://example.invalid/model.pkl",
-                                "sha256": hashlib.sha256(model).hexdigest(),
-                                "size": len(model),
-                                "archive": "none",
-                                "destination": "models/model.pkl",
+                        "os": {
+                            "windows": {
+                                "arch": {
+                                    "x86_64": {
+                                        "url": "https://example.invalid/model.pkl",
+                                        "sha256": hashlib.sha256(model).hexdigest(),
+                                        "archive": "none",
+                                        "destination": "models/model.pkl",
+                                    }
+                                }
                             }
                         },
                     },
                 },
-            },
-            {
-                "schema_version": 1,
                 "profiles": {"rife": {"components": ["placeholder", "model"]}},
             },
         )

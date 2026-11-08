@@ -1,11 +1,11 @@
-"""Parsing and validation for locked components and install profiles."""
+"""Parsing and validation for ``manifest.toml``."""
 
 from __future__ import annotations
 
 import re
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 from typing import Any
@@ -16,6 +16,8 @@ from .platforms import PlatformInfo
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 _ARCHIVES = frozenset({"zip", "zip+tar.gz", "none"})
 _VERSION = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+_RUNTIME_ENVIRONMENT = "runtime/venv"
+_ARTIFACT_FIELDS = ("url", "sha256", "archive", "exclude")
 
 
 def _table(value: object, label: str) -> Mapping[str, Any]:
@@ -68,12 +70,9 @@ def validate_relative_path(value: str, label: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Artifact:
-    platform: str
     url: str
     sha256: str
-    size: int
     archive: str
-    strip_components: int = 0
     destination: str = "."
     exclude: tuple[str, ...] = ()
 
@@ -85,7 +84,6 @@ class Artifact:
 @dataclass(frozen=True, slots=True)
 class UvRuntime:
     project: str
-    lockfile: str
     environment: str
     python_version: str
     extras: tuple[str, ...]
@@ -101,14 +99,18 @@ class SystemProgram:
     check_contains: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class GpuRequirement:
+    """A graphics card the host must have, matched against its reported name."""
+
+    matches: str
+    requirement: str
+
+
 def parse_version(text: str) -> tuple[int, ...] | None:
     """Return the first ``major.minor[.patch]`` found in ``text``."""
     match = _VERSION.search(text)
     return tuple(int(part or 0) for part in match.groups()) if match else None
-
-
-def _supports(platforms: tuple[str, ...], platform: PlatformInfo) -> bool:
-    return not platforms or any(key in platform.artifact_keys for key in platforms)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,14 +124,19 @@ class Component:
     runtime: UvRuntime | None = None
     platforms: tuple[str, ...] = ()
     system: SystemProgram | None = None
+    config_key: str | None = None
+    gpu: GpuRequirement | None = None
 
     def supports(self, platform: PlatformInfo) -> bool:
-        return _supports(self.platforms, platform)
+        # shortcut: a download missing a whole OS is skipped rather than an error,
+        # which is how `mpv` opts out of Linux; add an explicit opt-out if that bites.
+        return not self.platforms or any(
+            key.startswith(f"{platform.system}-") for key in self.platforms
+        )
 
     def artifact_for(self, platform: PlatformInfo) -> Artifact:
-        for key in platform.artifact_keys:
-            if artifact := self.artifacts.get(key):
-                return artifact
+        if artifact := self.artifacts.get(platform.key):
+            return artifact
         raise UnsupportedPlatformError(
             f"component {self.name!r} has no artifact for {platform.key}"
         )
@@ -142,9 +149,8 @@ class Profile:
     components: tuple[str, ...]
     extends: tuple[str, ...]
     platforms: tuple[str, ...]
-
-    def supports(self, platform: PlatformInfo) -> bool:
-        return _supports(self.platforms, platform)
+    extras: tuple[str, ...] = ()
+    settings: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,74 +158,60 @@ class ResolvedProfile:
     name: str
     description: str
     components: tuple[Component, ...]
+    extras: tuple[str, ...] = ()
+    settings: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class Manifest:
-    """Validated union of ``deps.lock.toml`` and ``profiles.toml``."""
+    """Validated contents of ``manifest.toml``."""
 
-    version: str
     components: Mapping[str, Component]
     profiles: Mapping[str, Profile]
-    dependencies_path: Path
-    profiles_path: Path
+    default_profile: str | None = None
 
     @classmethod
-    def load(
-        cls,
-        dependencies_path: str | Path,
-        profiles_path: str | Path,
-    ) -> Manifest:
-        dependencies_path = Path(dependencies_path)
-        profiles_path = Path(profiles_path)
+    def load(cls, path: str | Path) -> Manifest:
+        path = Path(path)
         try:
-            with dependencies_path.open("rb") as stream:
-                dependencies_data = tomllib.load(stream)
+            with path.open("rb") as stream:
+                data = tomllib.load(stream)
+            python_version = (path.parent / ".python-version").read_text("utf-8")
         except (OSError, tomllib.TOMLDecodeError) as exc:
-            raise ManifestError(f"cannot read {dependencies_path}: {exc}") from exc
-        try:
-            with profiles_path.open("rb") as stream:
-                profiles_data = tomllib.load(stream)
-        except (OSError, tomllib.TOMLDecodeError) as exc:
-            raise ManifestError(f"cannot read {profiles_path}: {exc}") from exc
-        return cls.from_data(
-            dependencies_data,
-            profiles_data,
-            dependencies_path=dependencies_path,
-            profiles_path=profiles_path,
-        )
+            raise ManifestError(f"cannot read {path}: {exc}") from exc
+        return cls.from_data(data, python_version=python_version.strip())
 
     @classmethod
     def from_data(
         cls,
-        dependencies_data: Mapping[str, Any],
-        profiles_data: Mapping[str, Any],
+        data: Mapping[str, Any],
         *,
-        dependencies_path: Path = Path("deps.lock.toml"),
-        profiles_path: Path = Path("profiles.toml"),
+        python_version: str | None = None,
     ) -> Manifest:
-        _validate_schema_version(dependencies_data, "dependency lock")
-        _validate_schema_version(profiles_data, "profiles manifest")
-        raw_components = _table(dependencies_data.get("components"), "components")
-        raw_profiles = _table(profiles_data.get("profiles"), "profiles")
+        _validate_schema_version(data)
+        raw_components = _table(data.get("components"), "components")
+        raw_profiles = _table(data.get("profiles"), "profiles")
         components = {
-            name: _parse_component(name, _table(data, f"components.{name}"))
-            for name, data in raw_components.items()
+            name: _parse_component(
+                name, _with_inherited_fields(name, raw_components), python_version
+            )
+            for name in raw_components
         }
         profiles = {
-            name: _parse_profile(name, _table(data, f"profiles.{name}"))
-            for name, data in raw_profiles.items()
+            name: _parse_profile(name, _table(table, f"profiles.{name}"))
+            for name, table in raw_profiles.items()
         }
         if not components:
-            raise ManifestError("the dependency lock contains no components")
+            raise ManifestError("the manifest contains no components")
         if not profiles:
-            raise ManifestError("the profiles manifest contains no profiles")
+            raise ManifestError("the manifest contains no profiles")
+        default_profile = data.get("default_profile")
+        if default_profile is not None and default_profile not in profiles:
+            raise ManifestError(f"unknown default profile {default_profile!r}")
         manifest = cls(
-            version=_manifest_version(dependencies_data),
             components=MappingProxyType(components),
             profiles=MappingProxyType(profiles),
-            dependencies_path=Path(dependencies_path),
-            profiles_path=Path(profiles_path),
+            default_profile=default_profile,
         )
         # Fail before touching an installation if any profile has an unknown
         # parent/component or an inheritance cycle.
@@ -238,6 +230,8 @@ class Manifest:
                 f"unknown profile {name!r}; available profiles: {choices}"
             )
         ordered_names: list[str] = []
+        extras: list[str] = []
+        settings: dict[str, object] = {}
         visited: set[str] = set()
 
         def visit(profile_name: str, stack: tuple[str, ...]) -> None:
@@ -260,55 +254,87 @@ class Manifest:
                     )
                 if component_name not in ordered_names:
                     ordered_names.append(component_name)
+            extras.extend(item for item in profile.extras if item not in extras)
+            settings.update(profile.settings)
             visited.add(profile_name)
 
         visit(name, ())
         profile = self.profiles[name]
-        components = tuple(self.components[item] for item in ordered_names)
+        components = tuple(
+            replace(item, runtime=replace(item.runtime, extras=tuple(extras)))
+            if item.runtime
+            else item
+            for item in (self.components[item] for item in ordered_names)
+        )
         if platform is not None:
-            if not profile.supports(platform):
+            platforms = self._profile_platforms(name)
+            if platforms and platform.key not in platforms:
                 raise UnsupportedPlatformError(
                     f"profile {name!r} does not support {platform.key}"
                 )
             components = tuple(item for item in components if item.supports(platform))
             for component in components:
-                if component.kind == "download":
-                    component.artifact_for(platform)
+                if component.platforms and platform.key not in component.platforms:
+                    raise UnsupportedPlatformError(
+                        f"component {component.name!r} does not support {platform.key}"
+                    )
         return ResolvedProfile(
             name=name,
             description=profile.description,
             components=components,
+            extras=tuple(extras),
+            settings=settings,
+        )
+
+    def _profile_platforms(self, name: str) -> tuple[str, ...]:
+        """A profile's own ``os`` table, or else the first one it inherits."""
+        profile = self.profiles[name]
+        return profile.platforms or next(
+            filter(None, (self._profile_platforms(p) for p in profile.extends)), ()
         )
 
 
-def _manifest_version(data: Mapping[str, Any]) -> str:
-    release = data.get("release")
-    if isinstance(release, dict) and release.get("version") is not None:
-        return _string(release["version"], "release.version")
-    for key in ("version", "lock_version", "manifest_version"):
-        if data.get(key) is not None:
-            value = data[key]
-            if isinstance(value, (str, int)) and not isinstance(value, bool):
-                return str(value)
-            raise ManifestError(f"{key} must be a string or integer")
-    return "unversioned"
+def _with_inherited_fields(
+    name: str,
+    components: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Apply a component's one-level ``extends``; ``config_key`` is never inherited."""
+    table = _table(components[name], f"components.{name}")
+    parent = table.get("extends")
+    if parent is None:
+        return table
+    if parent not in components:
+        raise ManifestError(f"component {name!r} extends unknown component {parent!r}")
+    inherited = _table(components[parent], f"components.{parent}")
+    return {**{k: v for k, v in inherited.items() if k != "config_key"}, **table}
 
 
-def _parse_component(name: str, data: Mapping[str, Any]) -> Component:
+def _parse_component(
+    name: str,
+    data: Mapping[str, Any],
+    python_version: str | None,
+) -> Component:
     kind = _string(
         data.get("kind"), f"components.{name}.kind", default="download"
     ).lower()
-    if kind not in {"download", "local", "uv-runtime", "system"}:
+    if kind not in {"download", "local", "uv-runtime", "system", "gpu"}:
         raise ManifestError(
             f"components.{name}.kind must be 'download', 'local', 'uv-runtime', "
-            "or 'system'"
+            "'system', or 'gpu'"
         )
-    version = str(data.get("version", "local" if kind == "local" else "unknown"))
-    platforms = _platform_list(data.get("platforms"), f"components.{name}.platforms")
+    version = str(
+        data.get(
+            "version", {"local": "local", "uv-runtime": "locked"}.get(kind, "unknown")
+        )
+    )
+    # Under a download, os.<name>.arch holds artifacts rather than a list.
+    platforms = () if kind == "download" else _platforms(data, f"components.{name}")
     if kind == "uv-runtime":
-        return _parse_runtime_component(name, version, data, platforms)
+        return _parse_runtime_component(name, version, data, platforms, python_version)
     if kind == "system":
         return _parse_system_component(name, data, platforms)
+    if kind == "gpu":
+        return _parse_gpu_component(name, data, platforms)
     destination = validate_relative_path(
         _string(data.get("destination"), f"components.{name}.destination", default="."),
         f"components.{name}.destination",
@@ -328,79 +354,10 @@ def _parse_component(name: str, data: Mapping[str, Any]) -> Component:
             platforms=platforms,
         )
 
-    raw_artifacts = _table(data.get("artifacts"), f"components.{name}.artifacts")
-    artifacts: dict[str, Artifact] = {}
-    for platform_key, raw_artifact in raw_artifacts.items():
-        artifact_data = _table(
-            raw_artifact, f"components.{name}.artifacts.{platform_key}"
-        )
-        sha256 = _string(
-            artifact_data.get("sha256"),
-            f"components.{name}.artifacts.{platform_key}.sha256",
-        ).lower()
-        if not _SHA256.fullmatch(sha256):
-            raise ManifestError(
-                f"components.{name}.artifacts.{platform_key}.sha256 must be "
-                "64 hexadecimal characters"
-            )
-        size = artifact_data.get("size")
-        if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
-            raise ManifestError(
-                f"components.{name}.artifacts.{platform_key}.size must be a "
-                "positive integer"
-            )
-        archive = _string(
-            artifact_data.get("archive"),
-            f"components.{name}.artifacts.{platform_key}.archive",
-            default="none",
-        ).lower()
-        if archive not in _ARCHIVES:
-            raise ManifestError(
-                f"components.{name}.artifacts.{platform_key}.archive must be one of: "
-                + ", ".join(sorted(_ARCHIVES))
-            )
-        strip_components = artifact_data.get("strip_components", 0)
-        if (
-            not isinstance(strip_components, int)
-            or isinstance(strip_components, bool)
-            or strip_components < 0
-        ):
-            raise ManifestError(
-                f"components.{name}.artifacts.{platform_key}.strip_components "
-                "must be a non-negative integer"
-            )
-        artifact_destination = validate_relative_path(
-            _string(
-                artifact_data.get("destination"),
-                f"components.{name}.artifacts.{platform_key}.destination",
-                default=destination,
-            ),
-            f"components.{name}.artifacts.{platform_key}.destination",
-        )
-        artifacts[platform_key.lower()] = Artifact(
-            platform=platform_key.lower(),
-            url=_string(
-                artifact_data.get("url"),
-                f"components.{name}.artifacts.{platform_key}.url",
-            ),
-            sha256=sha256,
-            size=size,
-            archive=archive,
-            strip_components=strip_components,
-            destination=artifact_destination,
-            exclude=tuple(
-                validate_relative_path(
-                    item,
-                    f"components.{name}.artifacts.{platform_key}.exclude",
-                )
-                for item in _string_list(
-                    artifact_data.get("exclude"),
-                    f"components.{name}.artifacts.{platform_key}.exclude",
-                )
-            ),
-        )
+    artifacts = _parse_artifacts(name, data, destination, python_version)
     if not artifacts:
         raise ManifestError(f"component {name!r} contains no artifacts")
+    config_key = data.get("config_key")
     return Component(
         name=name,
         version=version,
@@ -408,7 +365,104 @@ def _parse_component(name: str, data: Mapping[str, Any]) -> Component:
         destination=destination,
         path=None,
         artifacts=MappingProxyType(artifacts),
-        platforms=platforms,
+        platforms=tuple(artifacts),
+        config_key=(
+            _string(config_key, f"components.{name}.config_key")
+            if config_key is not None
+            else None
+        ),
+    )
+
+
+def _parse_artifacts(
+    name: str,
+    data: Mapping[str, Any],
+    default_destination: str,
+    python_version: str | None,
+) -> dict[str, Artifact]:
+    """Read ``os.<name>.arch``, keyed by ``<name>-<arch>``.
+
+    An array uses the component's own fields for each listed architecture; a
+    table of ``<arch>`` entries can add to or override them per architecture.
+    """
+    label = f"components.{name}.os"
+    shared = {key: data[key] for key in _ARTIFACT_FIELDS if key in data}
+    artifacts: dict[str, Artifact] = {}
+    for system, entry in _table(data.get("os"), label).items():
+        arch_label = f"{label}.{system}.arch"
+        raw = _table(entry, f"{label}.{system}").get("arch")
+        architectures = (
+            {arch: {} for arch in raw}
+            if isinstance(raw, list)
+            else _table(raw, arch_label)
+        )
+        for arch, overrides in architectures.items():
+            artifact_label = f"{arch_label}.{arch}"
+            key = _platform_key(system, arch, artifact_label)
+            values = {}
+            if "version" in data:
+                values["version"] = str(data["version"])
+            if python_version is not None:
+                values["site_packages"] = _site_packages(
+                    key.split("-")[0], python_version
+                )
+            artifacts[key] = _parse_artifact(
+                {**shared, **_table(overrides, artifact_label)},
+                artifact_label,
+                default_destination,
+                values,
+            )
+    return artifacts
+
+
+def _site_packages(system: str, python_version: str) -> str:
+    if system == "windows":
+        return f"{_RUNTIME_ENVIRONMENT}/Lib/site-packages"
+    major_minor = ".".join(python_version.split(".")[:2])
+    return f"{_RUNTIME_ENVIRONMENT}/lib/python{major_minor}/site-packages"
+
+
+def _expand(text: str, values: Mapping[str, str], label: str) -> str:
+    try:
+        return text.format(**values)
+    except (KeyError, IndexError, ValueError) as exc:
+        raise ManifestError(f"{label}: cannot expand {text!r}: {exc!r}") from exc
+
+
+def _parse_artifact(
+    data: Mapping[str, Any],
+    label: str,
+    default_destination: str,
+    values: Mapping[str, str],
+) -> Artifact:
+    sha256 = _string(data.get("sha256"), f"{label}.sha256").lower()
+    if not _SHA256.fullmatch(sha256):
+        raise ManifestError(f"{label}.sha256 must be 64 hexadecimal characters")
+    archive = _string(data.get("archive"), f"{label}.archive", default="none").lower()
+    if archive not in _ARCHIVES:
+        raise ManifestError(
+            f"{label}.archive must be one of: " + ", ".join(sorted(_ARCHIVES))
+        )
+    return Artifact(
+        url=_expand(_string(data.get("url"), f"{label}.url"), values, f"{label}.url"),
+        sha256=sha256,
+        archive=archive,
+        destination=validate_relative_path(
+            _expand(
+                _string(
+                    data.get("destination"),
+                    f"{label}.destination",
+                    default=default_destination,
+                ),
+                values,
+                f"{label}.destination",
+            ),
+            f"{label}.destination",
+        ),
+        exclude=tuple(
+            validate_relative_path(item, f"{label}.exclude")
+            for item in _string_list(data.get("exclude"), f"{label}.exclude")
+        ),
     )
 
 
@@ -443,8 +497,56 @@ def _parse_system_component(
     )
 
 
-def _platform_list(value: object, label: str) -> tuple[str, ...]:
-    return tuple(item.lower() for item in _string_list(value, label))
+def _parse_gpu_component(
+    name: str,
+    data: Mapping[str, Any],
+    platforms: tuple[str, ...],
+) -> Component:
+    label = f"components.{name}"
+    matches = _string(data.get("matches"), f"{label}.matches")
+    try:
+        re.compile(matches)
+    except re.error as exc:
+        raise ManifestError(f"{label}.matches is not a valid pattern: {exc}") from exc
+    return Component(
+        name=name,
+        version="gpu",
+        kind="gpu",
+        destination=".",
+        path=None,
+        artifacts=MappingProxyType({}),
+        platforms=platforms,
+        gpu=GpuRequirement(
+            matches=matches,
+            requirement=_string(data.get("requirement"), f"{label}.requirement"),
+        ),
+    )
+
+
+def _platform_key(system: str, arch: str, label: str) -> str:
+    try:
+        return PlatformInfo.parse(f"{system}-{arch}").key
+    except UnsupportedPlatformError as exc:
+        raise ManifestError(f"{label}: {exc}") from exc
+
+
+def _platforms(data: Mapping[str, Any], label: str) -> tuple[str, ...]:
+    """Read ``os.<name>.arch = [...]`` as ``<name>-<arch>`` keys; no ``os`` means any."""
+    if data.get("os") is None:
+        return ()
+    systems = _table(data["os"], f"{label}.os")
+    if not systems:
+        raise ManifestError(f"{label}.os must list at least one operating system")
+    platforms: list[str] = []
+    for system, entry in systems.items():
+        arch_label = f"{label}.os.{system}.arch"
+        architectures = _string_list(
+            _table(entry, f"{label}.os.{system}").get("arch"), arch_label
+        )
+        if not architectures:
+            raise ManifestError(f"{arch_label} must list at least one architecture")
+        platforms += [_platform_key(system, arch, arch_label) for arch in architectures]
+    return tuple(platforms)
 
 
 def _parse_runtime_component(
@@ -452,49 +554,25 @@ def _parse_runtime_component(
     version: str,
     data: Mapping[str, Any],
     platforms: tuple[str, ...],
+    python_version: str | None,
 ) -> Component:
+    if python_version is None:
+        raise ManifestError(f"component {name!r} needs a Python version")
     project = validate_relative_path(
         _string(data.get("project"), f"components.{name}.project"),
         f"components.{name}.project",
     )
-    destination = validate_relative_path(
-        _string(
-            data.get("destination"),
-            f"components.{name}.destination",
-            default=project,
-        ),
-        f"components.{name}.destination",
-    )
-    lockfile = validate_relative_path(
-        _string(
-            data.get("lockfile"),
-            f"components.{name}.lockfile",
-            default=f"{project}/uv.lock",
-        ),
-        f"components.{name}.lockfile",
-    )
-    environment = validate_relative_path(
-        _string(
-            data.get("environment"),
-            f"components.{name}.environment",
-            default="runtime/venv",
-        ),
-        f"components.{name}.environment",
-    )
     runtime = UvRuntime(
         project=project,
-        lockfile=lockfile,
-        environment=environment,
-        python_version=_string(
-            data.get("python_version"), f"components.{name}.python_version"
-        ),
-        extras=_string_list(data.get("extras"), f"components.{name}.extras"),
+        environment=_RUNTIME_ENVIRONMENT,
+        python_version=python_version,
+        extras=(),
     )
     return Component(
         name=name,
         version=version,
         kind="uv-runtime",
-        destination=destination,
+        destination=project,
         path=project,
         artifacts=MappingProxyType({}),
         runtime=runtime,
@@ -510,11 +588,13 @@ def _parse_profile(name: str, data: Mapping[str, Any]) -> Profile:
         ),
         components=_string_list(data.get("components"), f"profiles.{name}.components"),
         extends=_string_list(data.get("extends"), f"profiles.{name}.extends"),
-        platforms=_platform_list(data.get("platforms"), f"profiles.{name}.platforms"),
+        platforms=_platforms(data, f"profiles.{name}"),
+        extras=_string_list(data.get("extras"), f"profiles.{name}.extras"),
+        settings=dict(_table(data.get("settings", {}), f"profiles.{name}.settings")),
     )
 
 
-def _validate_schema_version(data: Mapping[str, Any], label: str) -> None:
+def _validate_schema_version(data: Mapping[str, Any]) -> None:
     value = data.get("schema_version")
     if not isinstance(value, int) or isinstance(value, bool) or value != 1:
-        raise ManifestError(f"{label} schema_version must be 1")
+        raise ManifestError("manifest schema_version must be 1")

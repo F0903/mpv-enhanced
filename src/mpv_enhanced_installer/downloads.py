@@ -10,13 +10,9 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from .errors import (
-    DownloadError,
-    HashMismatchError,
-    OfflineCacheMissError,
-    SizeMismatchError,
-)
+from .errors import DownloadError, HashMismatchError, OfflineCacheMissError
 from .manifest import Artifact
+from .version import VERSION
 
 Downloader = Callable[[str, Path], None]
 
@@ -33,7 +29,7 @@ def download_url(url: str, destination: Path) -> None:
     """Download *url* to *destination* without interpreting its contents."""
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "mpv-enhanced-installer/0.1"},
+        headers={"User-Agent": f"mpv-enhanced-installer/{VERSION}"},
     )
     try:
         with (
@@ -47,7 +43,7 @@ def download_url(url: str, destination: Path) -> None:
 
 
 class ArtifactCache:
-    """A content-addressed cache whose keys are lockfile SHA-256 values."""
+    """A content-addressed cache whose keys are pinned SHA-256 values."""
 
     def __init__(self, root: str | Path, downloader: Downloader = download_url) -> None:
         self.root = Path(root)
@@ -63,23 +59,8 @@ class ArtifactCache:
     def fetch(self, artifact: Artifact, *, offline: bool = False) -> Path:
         cached = self.cached_path(artifact)
         if cached.is_file():
-            actual_size = cached.stat().st_size
-            if actual_size != artifact.size:
-                try:
-                    cached.unlink()
-                except OSError as exc:
-                    raise DownloadError(
-                        f"cannot remove corrupt cache object {cached}: {exc}"
-                    ) from exc
-                if offline:
-                    raise SizeMismatchError(
-                        f"cached artifact size mismatch for {artifact.url}: expected "
-                        f"{artifact.size}, got {actual_size}"
-                    )
-            else:
-                actual = sha256_file(cached)
-                if actual == artifact.sha256:
-                    return cached
+            if sha256_file(cached) == artifact.sha256:
+                return cached
             try:
                 cached.unlink(missing_ok=True)
             except OSError as exc:
@@ -98,12 +79,6 @@ class ArtifactCache:
             if not temporary.is_file():
                 raise DownloadError(
                     f"downloader returned without creating an artifact for {artifact.url}"
-                )
-            actual_size = temporary.stat().st_size
-            if actual_size != artifact.size:
-                raise SizeMismatchError(
-                    f"download size mismatch for {artifact.url}: expected "
-                    f"{artifact.size}, got {actual_size}"
                 )
             actual = sha256_file(temporary)
             if actual != artifact.sha256:

@@ -27,6 +27,10 @@ _ARCHITECTURES = {
 }
 
 
+def running_in_wsl() -> bool:
+    return "microsoft" in stdlib_platform.release().lower()
+
+
 @dataclass(frozen=True, slots=True)
 class PlatformInfo:
     """A normalized operating system and CPU architecture pair."""
@@ -59,7 +63,7 @@ class PlatformInfo:
 
     @classmethod
     def parse(cls, value: str) -> PlatformInfo:
-        """Parse a manifest-style key such as ``windows-x86_64``."""
+        """Parse a key such as ``windows-x86_64``."""
         value = value.strip().lower()
         for system in ("windows", "linux", "macos"):
             prefix = f"{system}-"
@@ -70,8 +74,3 @@ class PlatformInfo:
     @property
     def key(self) -> str:
         return f"{self.system}-{self.architecture}"
-
-    @property
-    def artifact_keys(self) -> tuple[str, ...]:
-        """Artifact keys in decreasing specificity."""
-        return (self.key, self.system, "any")

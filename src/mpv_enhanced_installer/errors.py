@@ -6,7 +6,7 @@ class InstallerError(Exception):
 
 
 class ManifestError(InstallerError):
-    """A dependency or profile manifest is invalid."""
+    """The manifest is invalid."""
 
 
 class UnsupportedPlatformError(InstallerError):
@@ -26,11 +26,7 @@ class OfflineRuntimeUnsupportedError(InstallerError):
 
 
 class HashMismatchError(DownloadError):
-    """An artifact does not have the checksum recorded in the lockfile."""
-
-
-class SizeMismatchError(DownloadError):
-    """An artifact does not have the byte length recorded in the lockfile."""
+    """An artifact does not have the checksum recorded in the manifest."""
 
 
 class UnsafeArchiveError(InstallerError):

@@ -433,6 +433,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+rtx = [
+    { name = "nvidia-vfx" },
+]
 tensorrt = [
     { name = "tensorrt" },
     { name = "torch-tensorrt" },
@@ -440,13 +443,14 @@ tensorrt = [
 
 [package.metadata]
 requires-dist = [
+    { name = "nvidia-vfx", marker = "extra == 'rtx'", specifier = "==0.2.0.0", index = "https://pypi.nvidia.com/" },
     { name = "tensorrt", marker = "extra == 'tensorrt'", specifier = "==10.16.1.11", index = "https://pypi.nvidia.com/" },
     { name = "torch", specifier = "==2.12.1", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torch-tensorrt", marker = "extra == 'tensorrt'", specifier = "==2.12.1", index = "https://download.pytorch.org/whl/cu130" },
     { name = "vapoursynth", specifier = "==77" },
     { name = "vsrife", specifier = "==5.7.0" },
 ]
-provides-extras = ["tensorrt"]
+provides-extras = ["tensorrt", "rtx"]
 
 [[package]]
 name = "narwhals"
@@ -612,6 +616,15 @@ version = "13.0.85"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/f3/d86c845465a2723ad7e1e5c36dcd75ddb82898b3f53be47ebd429fb2fa5d/nvidia_nvtx-13.0.85-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:4936d1d6780fbe68db454f5e72a42ff64d1fd6397df9f363ae786930fd5c1cd4", size = 148047, upload-time = "2025-09-04T08:29:01.761Z" },
+]
+
+[[package]]
+name = "nvidia-vfx"
+version = "0.2.0.0"
+source = { registry = "https://pypi.nvidia.com/" }
+wheels = [
+    { url = "https://pypi.nvidia.com/nvidia-vfx/nvidia_vfx-0.2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0252866a7b798a6f92c8543443d88f716e8c5bbc6a7ddd77a2754728dada9fa8" },
+    { url = "https://pypi.nvidia.com/nvidia-vfx/nvidia_vfx-0.2.0.0-cp312-abi3-win_amd64.whl", hash = "sha256:cebaa12411f7e22b39293205c5c4d07b8073d14ca1e0e7727ee4375207a36445" },
 ]
 
 [[package]]
