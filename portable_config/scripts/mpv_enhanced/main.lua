@@ -10,9 +10,13 @@ local LABEL = "@interpolation"
 local SETTINGS_PATH = mp.command_native({"expand-path", "~~/script-opts/mpv_enhanced.json"})
 local INFO_PATH = mp.command_native({"expand-path", "~~/script-opts/mpv_enhanced_install.json"})
 
+local SUGGESTIONS_PATH = SETTINGS_PATH .. ".benchmark"
+local PROGRESS_PATH = SETTINGS_PATH .. ".progress"
+
 local info, saved, edited
 -- The user-data of the filter currently in the chain, if any.
 local applied
+local benchmarking = false
 
 local function read_file(path)
 	local file = io.open(path, "rb")
@@ -80,7 +84,7 @@ end
 
 --- Make the filter chain match the settings for the current file.
 local function apply_filter()
-	if not mp.get_property("path") then return end
+	if benchmarking or not mp.get_property("path") then return end
 	local width, height, fps = source_params()
 	local resolved = saved.enabled and is_moving_video()
 		and targets.resolve(saved, width, height, fps) or nil
@@ -157,9 +161,54 @@ local function apply_edits()
 	refresh_menu()
 end
 
+local function show_benchmark_progress()
+	local done, total = (read_file(PROGRESS_PATH) or ""):match("(%d+) (%d+)")
+	mp.osd_message(done and ("Benchmark: " .. done .. "/" .. total) or "Benchmark: starting", 2)
+end
+
+local function finish_benchmark(was_paused, succeeded, result)
+	local suggestions = succeeded and result.status == 0 and read_json(SUGGESTIONS_PATH)
+	os.remove(SUGGESTIONS_PATH)
+	os.remove(PROGRESS_PATH)
+	benchmarking = false
+	if type(suggestions) == "table" then
+		draft.replace_targets(edited, suggestions)
+		mp.osd_message("Benchmark done. Press Apply to use the suggested targets.", 5)
+	else
+		mp.osd_message("Benchmark failed. Close GPU-heavy programs and try again.", 5)
+	end
+	mp.set_property_native("pause", was_paused)
+	apply_filter()
+	refresh_menu()
+end
+
+local function run_benchmark()
+	if benchmarking or not info.benchmark_command then return end
+	benchmarking = true
+	local was_paused = mp.get_property_native("pause")
+	mp.set_property_native("pause", true)
+	-- The benchmark needs the GPU memory the running filter is holding.
+	remove_filter()
+	local args = {}
+	for index, argument in ipairs(info.benchmark_command) do args[index] = argument end
+	for _, argument in ipairs({"--suggest-to", SUGGESTIONS_PATH, "--progress-file", PROGRESS_PATH}) do
+		args[#args + 1] = argument
+	end
+	show_benchmark_progress()
+	local timer = mp.add_periodic_timer(1, show_benchmark_progress)
+	mp.command_native_async(
+		{name = "subprocess", args = args, playback_only = false, capture_stdout = true, capture_stderr = true},
+		function(succeeded, result)
+			timer:kill()
+			finish_benchmark(was_paused, succeeded, result)
+		end
+	)
+end
+
 local actions = {
 	toggle = toggle,
 	apply = apply_edits,
+	benchmark = run_benchmark,
 	discard = function()
 		edited = draft.copy(saved)
 		refresh_menu()
