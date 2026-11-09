@@ -1,40 +1,85 @@
 schema_version = 1
-default_profile = "rtx-high"
+default_profile = "core"
 
-# `settings` are written to the generated rife_profile.py for the interpolation script.
-[profiles.rtx-high]
-description = "Best quality. RTX Video Frame Generation, High; needs an NVIDIA RTX 40 series or newer GPU"
-extends = "core"
+# The values the MPV Enhanced menu offers. The 4K limit is DCI-wide so that
+# cropped and DCI video count as 4K.
+[interpolation]
+resolutions = [
+    { label = "720p", width = 1280, height = 720 },
+    { label = "1080p", width = 1920, height = 1080 },
+    { label = "1440p", width = 2560, height = 1440 },
+    { label = "4K", width = 4096, height = 2160 },
+    { label = "8K", width = 8192, height = 4320 },
+]
+frame_rates = [24, 30, 48, 60, 120]
+multipliers = [2, 3, 4]
+fps_cutoffs = [30, 48, 60, 90, 120]
+default_fps_cutoff = 60
+
+# The installer's methods screen lists these in this order, and the first that
+# can run starts ticked unless `preselect` is false. `extras` are optional
+# dependency groups of the uv runtime. Each choice is one entry in the player's
+# menu: `rank` is its quality order (1 is best) and `settings` go to the filter.
+[methods.rtx]
+description = "RTX Video Frame Generation in High, Medium and Low; needs an RTX 40 series or newer"
 components = ["nvidia-rtx-gpu", "rife-runtime"]
 extras = ["rtx"]
-settings.interpolator = "rtx"
-settings.rtx_mode = "HIGH"
 os.windows.arch = ["x86_64"]
 
-[profiles.rtx-medium]
-description = "RTX Video Frame Generation, Medium; faster than High on the same GPUs"
-extends = "rtx-high"
-settings.rtx_mode = "MEDIUM"
+[[methods.rtx.choices]]
+id = "rtx-high"
+title = "RTX High"
+rank = 1
+settings = { interpolator = "rtx", rtx_mode = "HIGH" }
 
-[profiles.rtx-low]
-description = "RTX Video Frame Generation, Low; fastest, with visible artifacts in fast motion"
-extends = "rtx-high"
-settings.rtx_mode = "LOW"
+[[methods.rtx.choices]]
+id = "rtx-medium"
+title = "RTX Medium"
+rank = 2
+settings = { interpolator = "rtx", rtx_mode = "MEDIUM" }
 
-# The menu lists profiles in this order. If the default can't run on a machine,
-# the first one that can becomes the default.
-# `extras` are the optional dependency groups of the profile's uv runtime.
-[profiles.rife-tensorrt]
-description = "RIFE CUDA plus TensorRT acceleration; engines are compiled on first use"
-extends = "rife-cuda"
-extras = ["tensorrt"]
+[[methods.rtx.choices]]
+id = "rtx-low"
+title = "RTX Low"
+rank = 7
+settings = { interpolator = "rtx", rtx_mode = "LOW" }
 
-[profiles.rife-cuda]
-description = "Core plus VapourSynth and CUDA-backed RIFE interpolation"
-extends = "core"
+[methods.rife]
+description = "RIFE with the 4.25-lite and 4.25 models; needs an NVIDIA GPU"
 components = ["system-mpv-vapoursynth", "nvidia-gpu", "rife-runtime", "rife-model", "rife-model-full"]
 os.windows.arch = ["x86_64"]
 os.linux.arch = ["x86_64"]
+
+[[methods.rife.choices]]
+id = "rife-4.25"
+title = "RIFE 4.25"
+rank = 5
+settings = { interpolator = "rife", rife_model = "4.25", tensorrt = false }
+
+[[methods.rife.choices]]
+id = "rife-4.25-lite"
+title = "RIFE 4.25-lite"
+rank = 6
+settings = { interpolator = "rife", rife_model = "4.25.lite", tensorrt = false }
+
+# Everything `rife` installs and offers, plus these choices.
+[methods.rife-tensorrt]
+extends = "rife"
+description = "Faster RIFE using NVIDIA TensorRT; engines are compiled on first use"
+extras = ["tensorrt"]
+preselect = false
+
+[[methods.rife-tensorrt.choices]]
+id = "rife-4.25-tensorrt"
+title = "RIFE 4.25 TensorRT"
+rank = 3
+settings = { interpolator = "rife", rife_model = "4.25", tensorrt = true }
+
+[[methods.rife-tensorrt.choices]]
+id = "rife-4.25-lite-tensorrt"
+title = "RIFE 4.25-lite TensorRT"
+rank = 4
+settings = { interpolator = "rife", rife_model = "4.25.lite", tensorrt = true }
 
 # A component whose `os` table omits the host OS is skipped, so `mpv` is
 # downloaded on Windows/macOS and `system-mpv` is checked on Linux.
@@ -130,19 +175,16 @@ destination = "portable_config"
 kind = "uv-runtime"
 project = "runtime/rife"
 
-# `config_key` writes this component's version to the generated rife_profile.py.
 [components.rife-model]
 kind = "download"
 version = "4.25.lite"
 url = "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v{version}.pkl"
 sha256 = "81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1"
 destination = "{site_packages}/vsrife/models/flownet_v{version}.pkl"
-config_key = "rife_model"
 os.windows.arch = ["x86_64"]
 os.linux.arch = ["x86_64"]
 
-# Selected with rife_model = "4.25" in rife_config_local.py. Upstream says 4.25
-# significantly improved anime scenes. `extends` copies all but `config_key`.
+# Upstream says 4.25 significantly improved anime scenes.
 [components.rife-model-full]
 extends = "rife-model"
 version = "4.25"

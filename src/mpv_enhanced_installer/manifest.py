@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
@@ -14,6 +14,7 @@ from .errors import ManifestError, UnsupportedPlatformError
 from .platforms import PlatformInfo
 
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
+_CHOICE_ID = re.compile(r"[a-z0-9][a-z0-9.-]*\Z")
 _ARCHIVES = frozenset({"zip", "zip+tar.gz", "none"})
 _VERSION = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
 _RUNTIME_ENVIRONMENT = "runtime/venv"
@@ -108,6 +109,47 @@ class GpuRequirement:
 
 
 @dataclass(frozen=True, slots=True)
+class Resolution:
+    label: str
+    width: int
+    height: int
+
+
+@dataclass(frozen=True, slots=True)
+class InterpolationOptions:
+    """The values the player's menu offers."""
+
+    resolutions: tuple[Resolution, ...]
+    frame_rates: tuple[int, ...]
+    multipliers: tuple[int, ...]
+    fps_cutoffs: tuple[int, ...]
+    default_fps_cutoff: int
+
+
+@dataclass(frozen=True, slots=True)
+class MethodChoice:
+    """One entry in the player's method list."""
+
+    id: str
+    title: str
+    rank: int
+    settings: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class Method:
+    """An interpolation method the installer can add, with any inheritance applied."""
+
+    name: str
+    description: str
+    components: tuple[str, ...]
+    extras: tuple[str, ...]
+    platforms: tuple[str, ...]
+    choices: tuple[MethodChoice, ...]
+    preselect: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class ComponentSetup:
     """One value to ask the user for, saved to a file in the install."""
 
@@ -134,7 +176,6 @@ class Component:
     runtime: UvRuntime | None = None
     platforms: tuple[str, ...] = ()
     system: SystemProgram | None = None
-    config_key: str | None = None
     gpu: GpuRequirement | None = None
     optional: bool = False
     description: str = ""
@@ -162,8 +203,6 @@ class Profile:
     components: tuple[str, ...]
     extends: tuple[str, ...]
     platforms: tuple[str, ...]
-    extras: tuple[str, ...] = ()
-    settings: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +211,8 @@ class ResolvedProfile:
     description: str
     components: tuple[Component, ...]
     extras: tuple[str, ...] = ()
-    settings: Mapping[str, object] = field(default_factory=dict)
+    methods: tuple[str, ...] = ()
+    choices: tuple[MethodChoice, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +222,8 @@ class Manifest:
     components: Mapping[str, Component]
     profiles: Mapping[str, Profile]
     default_profile: str | None = None
+    methods: Mapping[str, Method] = field(default_factory=dict)
+    interpolation: InterpolationOptions | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> Manifest:
@@ -221,16 +263,40 @@ class Manifest:
         default_profile = data.get("default_profile")
         if default_profile is not None and default_profile not in profiles:
             raise ManifestError(f"unknown default profile {default_profile!r}")
+        raw_methods = _table(data.get("methods", {}), "methods")
+        methods = {
+            name: _parse_method(name, _with_inherited_method(name, raw_methods))
+            for name in raw_methods
+        }
+        raw_options = data.get("interpolation")
         manifest = cls(
             components=MappingProxyType(components),
             profiles=MappingProxyType(profiles),
             default_profile=default_profile,
+            methods=MappingProxyType(methods),
+            interpolation=_parse_options(raw_options) if raw_options else None,
         )
-        # Fail before touching an installation if any profile has an unknown
-        # parent/component or an inheritance cycle.
+        # Fail before touching an installation if any profile or method has an
+        # unknown parent/component or an inheritance cycle.
         for name in profiles:
             manifest.resolve_profile(name)
+        for name in methods:
+            manifest.resolve_profile(next(iter(profiles)), methods=(name,))
         return manifest
+
+    def available_methods(self, platform: PlatformInfo) -> tuple[Method, ...]:
+        return tuple(
+            item
+            for item in self.methods.values()
+            if not item.platforms or platform.key in item.platforms
+        )
+
+    def method_choices(self, names: Sequence[str]) -> tuple[MethodChoice, ...]:
+        """The choices of these methods, best first, without repeats."""
+        unique = {
+            choice.id: choice for name in names for choice in self.methods[name].choices
+        }
+        return tuple(sorted(unique.values(), key=lambda choice: choice.rank))
 
     def optional_components(self, platform: PlatformInfo) -> tuple[Component, ...]:
         return tuple(
@@ -244,6 +310,7 @@ class Manifest:
         name: str,
         platform: PlatformInfo | None = None,
         *,
+        methods: tuple[str, ...] = (),
         optional: tuple[str, ...] = (),
     ) -> ResolvedProfile:
         if name not in self.profiles:
@@ -253,7 +320,6 @@ class Manifest:
             )
         ordered_names: list[str] = []
         extras: list[str] = []
-        settings: dict[str, object] = {}
         visited: set[str] = set()
 
         def visit(profile_name: str, stack: tuple[str, ...]) -> None:
@@ -276,11 +342,35 @@ class Manifest:
                     )
                 if component_name not in ordered_names:
                     ordered_names.append(component_name)
-            extras.extend(item for item in profile.extras if item not in extras)
-            settings.update(profile.settings)
             visited.add(profile_name)
 
         visit(name, ())
+        for method_name in methods:
+            method = self.methods.get(method_name)
+            if method is None:
+                choices = ", ".join(self.methods) or "none"
+                raise ManifestError(
+                    f"unknown interpolation method {method_name!r}; "
+                    f"available: {choices}"
+                )
+            if (
+                platform is not None
+                and method.platforms
+                and platform.key not in method.platforms
+            ):
+                raise UnsupportedPlatformError(
+                    f"interpolation method {method_name!r} does not support "
+                    f"{platform.key}"
+                )
+            for component_name in method.components:
+                if component_name not in self.components:
+                    raise ManifestError(
+                        f"interpolation method {method_name!r} references unknown "
+                        f"component {component_name!r}"
+                    )
+                if component_name not in ordered_names:
+                    ordered_names.append(component_name)
+            extras.extend(item for item in method.extras if item not in extras)
         for item in optional:
             component = self.components.get(item)
             if component is None or not component.optional:
@@ -320,7 +410,8 @@ class Manifest:
             description=profile.description,
             components=components,
             extras=tuple(extras),
-            settings=settings,
+            methods=methods,
+            choices=self.method_choices(methods),
         )
 
     def _profile_platforms(self, name: str) -> tuple[str, ...]:
@@ -335,15 +426,115 @@ def _with_inherited_fields(
     name: str,
     components: Mapping[str, Any],
 ) -> Mapping[str, Any]:
-    """Apply a component's one-level ``extends``; ``config_key`` is never inherited."""
+    """Apply a component's one-level ``extends``."""
     table = _table(components[name], f"components.{name}")
     parent = table.get("extends")
     if parent is None:
         return table
     if parent not in components:
         raise ManifestError(f"component {name!r} extends unknown component {parent!r}")
-    inherited = _table(components[parent], f"components.{parent}")
-    return {**{k: v for k, v in inherited.items() if k != "config_key"}, **table}
+    return {**_table(components[parent], f"components.{parent}"), **table}
+
+
+def _with_inherited_method(
+    name: str,
+    methods: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Apply a method's one-level ``extends``: a child adds to its parent's lists."""
+    table = _table(methods[name], f"methods.{name}")
+    parent = table.get("extends")
+    if parent is None:
+        return table
+    if parent not in methods:
+        raise ManifestError(f"method {name!r} extends unknown method {parent!r}")
+    inherited = _table(methods[parent], f"methods.{parent}")
+    merged = {"os": inherited.get("os"), **table}
+    for key in ("components", "extras", "choices"):
+        merged[key] = [*inherited.get(key, []), *table.get(key, [])]
+    return merged
+
+
+def _parse_method(name: str, data: Mapping[str, Any]) -> Method:
+    label = f"methods.{name}"
+    preselect = data.get("preselect", True)
+    if not isinstance(preselect, bool):
+        raise ManifestError(f"{label}.preselect must be true or false")
+    raw_choices = data.get("choices")
+    if not isinstance(raw_choices, list) or not raw_choices:
+        raise ManifestError(f"{label}.choices must list at least one choice")
+    return Method(
+        name=name,
+        description=_string(data.get("description"), f"{label}.description"),
+        components=_string_list(data.get("components"), f"{label}.components"),
+        extras=_string_list(data.get("extras"), f"{label}.extras"),
+        platforms=_platforms(data, label),
+        choices=tuple(
+            _parse_choice(item, f"{label}.choices[{index}]")
+            for index, item in enumerate(raw_choices)
+        ),
+        preselect=preselect,
+    )
+
+
+def _parse_choice(value: object, label: str) -> MethodChoice:
+    data = _table(value, label)
+    identifier = _string(data.get("id"), f"{label}.id")
+    # The id is passed through mpv's filter options, and "none" is reserved.
+    if not _CHOICE_ID.fullmatch(identifier) or identifier == "none":
+        raise ManifestError(f"{label}.id is not a usable choice id: {identifier!r}")
+    return MethodChoice(
+        id=identifier,
+        title=_string(data.get("title"), f"{label}.title"),
+        rank=_integer(data.get("rank"), f"{label}.rank"),
+        settings=MappingProxyType(
+            dict(_table(data.get("settings"), f"{label}.settings"))
+        ),
+    )
+
+
+def _integer(value: object, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ManifestError(f"{label} must be an integer")
+    return value
+
+
+def _integer_list(value: object, label: str) -> tuple[int, ...]:
+    if not isinstance(value, list) or not value:
+        raise ManifestError(f"{label} must list at least one number")
+    return tuple(_integer(item, label) for item in value)
+
+
+def _parse_options(value: object) -> InterpolationOptions:
+    label = "interpolation"
+    data = _table(value, label)
+    raw_resolutions = data.get("resolutions")
+    if not isinstance(raw_resolutions, list) or not raw_resolutions:
+        raise ManifestError(f"{label}.resolutions must list at least one resolution")
+    resolutions = []
+    for index, item in enumerate(raw_resolutions):
+        entry = _table(item, f"{label}.resolutions[{index}]")
+        resolutions.append(
+            Resolution(
+                label=_string(
+                    entry.get("label"), f"{label}.resolutions[{index}].label"
+                ),
+                width=_integer(
+                    entry.get("width"), f"{label}.resolutions[{index}].width"
+                ),
+                height=_integer(
+                    entry.get("height"), f"{label}.resolutions[{index}].height"
+                ),
+            )
+        )
+    return InterpolationOptions(
+        resolutions=tuple(resolutions),
+        frame_rates=_integer_list(data.get("frame_rates"), f"{label}.frame_rates"),
+        multipliers=_integer_list(data.get("multipliers"), f"{label}.multipliers"),
+        fps_cutoffs=_integer_list(data.get("fps_cutoffs"), f"{label}.fps_cutoffs"),
+        default_fps_cutoff=_integer(
+            data.get("default_fps_cutoff"), f"{label}.default_fps_cutoff"
+        ),
+    )
 
 
 def _parse_component(
@@ -394,7 +585,6 @@ def _parse_component(
     artifacts = _parse_artifacts(name, data, destination, python_version)
     if not artifacts:
         raise ManifestError(f"component {name!r} contains no artifacts")
-    config_key = data.get("config_key")
     optional = data.get("optional", False)
     if not isinstance(optional, bool):
         raise ManifestError(f"components.{name}.optional must be true or false")
@@ -406,11 +596,6 @@ def _parse_component(
         path=None,
         artifacts=MappingProxyType(artifacts),
         platforms=tuple(artifacts),
-        config_key=(
-            _string(config_key, f"components.{name}.config_key")
-            if config_key is not None
-            else None
-        ),
         optional=optional,
         description=(
             _string(data.get("description"), f"components.{name}.description")
@@ -658,8 +843,6 @@ def _parse_profile(name: str, data: Mapping[str, Any]) -> Profile:
         components=_string_list(data.get("components"), f"profiles.{name}.components"),
         extends=_string_list(data.get("extends"), f"profiles.{name}.extends"),
         platforms=_platforms(data, f"profiles.{name}"),
-        extras=_string_list(data.get("extras"), f"profiles.{name}.extras"),
-        settings=dict(_table(data.get("settings", {}), f"profiles.{name}.settings")),
     )
 
 

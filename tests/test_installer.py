@@ -38,7 +38,6 @@ def local_manifest(path: str = "portable_config") -> Manifest:
                 "rife-tensorrt": {
                     "extends": "core",
                     "components": [],
-                    "extras": ["tensorrt"],
                 },
             },
         },
@@ -301,36 +300,6 @@ class TransactionalInstallerTests(unittest.TestCase):
                 "tensorrt = True",
                 (target / "portable_config" / "rife_profile.py").read_text(),
             )
-
-    def test_component_config_key_writes_its_version_to_the_profile(self) -> None:
-        artifact = {"url": "https://example.invalid/m", "sha256": "0" * 64}
-        manifest = Manifest.from_data(
-            {
-                "schema_version": 1,
-                "components": {
-                    "model": {
-                        "kind": "download",
-                        "version": "9.9.lite",
-                        "config_key": "rife_model",
-                        "os": {"windows": {"arch": {"x86_64": artifact}}},
-                    }
-                },
-                "profiles": {"rife": {"components": ["model"]}},
-            },
-        )
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "portable_config").mkdir()
-            installer = Installer(
-                manifest,
-                ArtifactCache(root / "cache"),
-                source_root=root,
-                platform=PlatformInfo("windows", "x86_64"),
-            )
-            installer._write_managed_profile(root, manifest.resolve_profile("rife"))
-            text = (root / "portable_config" / "rife_profile.py").read_text()
-        self.assertIn("rife_model = '9.9.lite'", text)
-        self.assertIn("tensorrt = False", text)
 
     def test_offline_uv_runtime_is_rejected_before_staging(self) -> None:
         manifest = Manifest.from_data(

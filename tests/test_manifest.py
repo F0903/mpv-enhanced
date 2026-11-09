@@ -7,13 +7,19 @@ from mpv_enhanced_installer.platforms import PlatformInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_VERSION = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+WINDOWS = PlatformInfo("windows", "x86_64")
+LINUX = PlatformInfo("linux", "x86_64")
+
+
+def load() -> Manifest:
+    return Manifest.load(ROOT / "manifest.toml")
 
 
 class RealManifestTests(unittest.TestCase):
     def test_repository_manifests_load_and_resolve_in_order(self) -> None:
         manifest = Manifest.load(ROOT / "manifest.toml")
         resolved = manifest.resolve_profile(
-            "rife-tensorrt", PlatformInfo("windows", "x86_64")
+            "core", PlatformInfo("windows", "x86_64"), methods=("rife-tensorrt",)
         )
 
         self.assertEqual(
@@ -39,35 +45,104 @@ class RealManifestTests(unittest.TestCase):
         self.assertIn(f"/v{mpv.version}/mpv-v{mpv.version}-", mpv_artifact.url)
         self.assertIn("mpv-register.bat", mpv_artifact.exclude)
 
-    def test_rtx_high_is_the_default_and_the_modes_share_one_runtime(self) -> None:
-        manifest = Manifest.load(ROOT / "manifest.toml")
-        windows = PlatformInfo("windows", "x86_64")
-        self.assertEqual(manifest.default_profile, "rtx-high")
-        high = manifest.resolve_profile("rtx-high", windows)
-        low = manifest.resolve_profile("rtx-low", windows)
+    def test_core_is_the_only_profile_and_the_default(self) -> None:
+        manifest = load()
+        self.assertEqual(list(manifest.profiles), ["core"])
+        self.assertEqual(manifest.default_profile, "core")
+
+    def test_rtx_method_adds_its_components_and_extra(self) -> None:
+        resolved = load().resolve_profile("core", WINDOWS, methods=("rtx",))
         self.assertEqual(
-            [item.name for item in high.components],
+            [item.name for item in resolved.components],
             ["mpv", "portable-config", "nvidia-rtx-gpu", "rife-runtime"],
         )
-        self.assertEqual(high.extras, ("rtx",))
-        self.assertEqual(high.settings, {"interpolator": "rtx", "rtx_mode": "HIGH"})
-        self.assertEqual(low.settings, {"interpolator": "rtx", "rtx_mode": "LOW"})
-        self.assertEqual(high.components, low.components)
-        with self.assertRaises(UnsupportedPlatformError):
-            manifest.resolve_profile("rtx-low", PlatformInfo("linux", "x86_64"))
-
-    def test_tensorrt_extends_cuda_with_only_the_extra(self) -> None:
-        manifest = Manifest.load(ROOT / "manifest.toml")
-        windows = PlatformInfo("windows", "x86_64")
-        cuda = manifest.resolve_profile("rife-cuda", windows)
-        tensorrt = manifest.resolve_profile("rife-tensorrt", windows)
-        self.assertEqual(cuda.extras, ())
+        self.assertEqual(resolved.extras, ("rtx",))
         self.assertEqual(
-            [item.name for item in cuda.components],
-            [item.name for item in tensorrt.components],
+            [item.id for item in resolved.choices],
+            ["rtx-high", "rtx-medium", "rtx-low"],
+        )
+        self.assertEqual(
+            resolved.choices[0].settings, {"interpolator": "rtx", "rtx_mode": "HIGH"}
+        )
+
+    def test_tensorrt_method_inherits_rife_and_adds_its_choices(self) -> None:
+        manifest = load()
+        rife = manifest.resolve_profile("core", WINDOWS, methods=("rife",))
+        resolved = manifest.resolve_profile("core", WINDOWS, methods=("rife-tensorrt",))
+        self.assertIn("rife-model-full", [item.name for item in resolved.components])
+        self.assertEqual(
+            [item.name for item in rife.components],
+            [item.name for item in resolved.components],
+        )
+        self.assertEqual(rife.extras, ())
+        self.assertEqual(resolved.extras, ("tensorrt",))
+        self.assertEqual(
+            [item.id for item in resolved.choices],
+            [
+                "rife-4.25-tensorrt",
+                "rife-4.25-lite-tensorrt",
+                "rife-4.25",
+                "rife-4.25-lite",
+            ],
         )
         with self.assertRaises(UnsupportedPlatformError):
-            manifest.resolve_profile("rife-tensorrt", PlatformInfo("macos", "aarch64"))
+            manifest.resolve_profile(
+                "core", PlatformInfo("macos", "aarch64"), methods=("rife-tensorrt",)
+            )
+
+    def test_method_choices_follow_the_quality_order(self) -> None:
+        ids = [item.id for item in load().method_choices(("rtx", "rife-tensorrt"))]
+        self.assertEqual(
+            ids,
+            [
+                "rtx-high",
+                "rtx-medium",
+                "rife-4.25-tensorrt",
+                "rife-4.25-lite-tensorrt",
+                "rife-4.25",
+                "rife-4.25-lite",
+                "rtx-low",
+            ],
+        )
+
+    def test_methods_reject_unknown_names_and_platforms(self) -> None:
+        with self.assertRaises(ManifestError):
+            load().resolve_profile("core", WINDOWS, methods=("nope",))
+        with self.assertRaises(UnsupportedPlatformError):
+            load().resolve_profile("core", LINUX, methods=("rtx",))
+
+    def test_only_tensorrt_is_not_preselected(self) -> None:
+        self.assertEqual(
+            [item.name for item in load().methods.values() if not item.preselect],
+            ["rife-tensorrt"],
+        )
+
+    def test_available_methods_depend_on_the_platform(self) -> None:
+        manifest = load()
+        self.assertEqual(
+            [item.name for item in manifest.available_methods(WINDOWS)],
+            ["rtx", "rife", "rife-tensorrt"],
+        )
+        self.assertEqual(
+            [item.name for item in manifest.available_methods(LINUX)],
+            ["rife", "rife-tensorrt"],
+        )
+
+    def test_option_lists_are_in_the_manifest(self) -> None:
+        options = load().interpolation
+        assert options is not None
+        self.assertEqual(
+            [item.label for item in options.resolutions],
+            ["720p", "1080p", "1440p", "4K", "8K"],
+        )
+        self.assertEqual(
+            (options.resolutions[3].width, options.resolutions[3].height),
+            (4096, 2160),
+        )
+        self.assertEqual(options.frame_rates, (24, 30, 48, 60, 120))
+        self.assertEqual(options.multipliers, (2, 3, 4))
+        self.assertEqual(options.fps_cutoffs, (30, 48, 60, 90, 120))
+        self.assertEqual(options.default_fps_cutoff, 60)
 
     def test_model_paths_are_built_from_its_version_and_python(self) -> None:
         manifest = Manifest.load(ROOT / "manifest.toml")
@@ -94,7 +169,7 @@ class RealManifestTests(unittest.TestCase):
         self.assertEqual(
             [item.name for item in core.components], ["system-mpv", "portable-config"]
         )
-        rife = manifest.resolve_profile("rife-cuda", linux)
+        rife = manifest.resolve_profile("core", linux, methods=("rife",))
         check = manifest.components["system-mpv-vapoursynth"].system
         assert check is not None
         self.assertIn("system-mpv-vapoursynth", [c.name for c in rife.components])
@@ -112,7 +187,7 @@ class RealManifestTests(unittest.TestCase):
             manifest.components["mpv"].artifact_for(mac).archive, "zip+tar.gz"
         )
         with self.assertRaises(UnsupportedPlatformError):
-            manifest.resolve_profile("rife-cuda", mac)
+            manifest.resolve_profile("core", mac, methods=("rife",))
 
     def test_repository_profiles_reject_other_platforms(self) -> None:
         manifest = Manifest.load(ROOT / "manifest.toml")
@@ -186,13 +261,11 @@ class ManifestValidationTests(unittest.TestCase):
             ):
                 Manifest.from_data(data)
 
-    def test_extends_inherits_fields_but_not_the_config_key(self) -> None:
+    def test_extends_inherits_a_components_fields(self) -> None:
         manifest = Manifest.load(ROOT / "manifest.toml")
         windows = PlatformInfo("windows", "x86_64")
         lite = manifest.components["rife-model"]
         full = manifest.components["rife-model-full"]
-        self.assertEqual(lite.config_key, "rife_model")
-        self.assertIsNone(full.config_key)
         self.assertEqual(full.version, "4.25")
         self.assertTrue(full.artifact_for(windows).url.endswith("/flownet_v4.25.pkl"))
         self.assertTrue(
@@ -201,6 +274,28 @@ class ManifestValidationTests(unittest.TestCase):
         self.assertNotEqual(
             full.artifact_for(windows).sha256, lite.artifact_for(windows).sha256
         )
+
+    def test_choice_ids_must_be_safe_and_not_reserved(self) -> None:
+        for identifier in ("none", "has space", "a:b", "UPPER"):
+            data = {
+                "schema_version": 1,
+                "components": {"local": {"kind": "local", "path": "files"}},
+                "profiles": {"core": {"components": ["local"]}},
+                "methods": {
+                    "m": {
+                        "description": "d",
+                        "components": ["local"],
+                        "choices": [
+                            {"id": identifier, "title": "T", "rank": 1, "settings": {}}
+                        ],
+                    }
+                },
+            }
+            with (
+                self.subTest(identifier=identifier),
+                self.assertRaisesRegex(ManifestError, "usable choice id"),
+            ):
+                Manifest.from_data(data)
 
     def test_extending_an_unknown_component_is_rejected(self) -> None:
         data = {
