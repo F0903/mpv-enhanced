@@ -63,24 +63,49 @@ def test_core_is_the_only_profile_and_the_default(self):
     self.assertEqual(list(manifest.profiles), ["core"])
     self.assertEqual(manifest.default_profile, "core")
 
+
 def test_rtx_method_adds_its_components_and_extra(self):
     resolved = load().resolve_profile("core", WINDOWS, methods=("rtx",))
-    self.assertEqual([c.name for c in resolved.components],
-                     ["mpv", "portable-config", "nvidia-rtx-gpu", "rife-runtime"])
+    self.assertEqual(
+        [c.name for c in resolved.components],
+        ["mpv", "portable-config", "nvidia-rtx-gpu", "rife-runtime"],
+    )
     self.assertEqual(resolved.extras, ("rtx",))
-    self.assertEqual([c.id for c in resolved.choices], ["rtx-high", "rtx-medium", "rtx-low"])
+    self.assertEqual(
+        [c.id for c in resolved.choices], ["rtx-high", "rtx-medium", "rtx-low"]
+    )
+
 
 def test_tensorrt_method_inherits_rife_and_adds_its_choices(self):
     resolved = load().resolve_profile("core", WINDOWS, methods=("rife-tensorrt",))
     self.assertIn("rife-model-full", [c.name for c in resolved.components])
     self.assertEqual(resolved.extras, ("tensorrt",))
-    self.assertEqual([c.id for c in resolved.choices], [
-        "rife-4.25-tensorrt", "rife-4.25-lite-tensorrt", "rife-4.25", "rife-4.25-lite"])
+    self.assertEqual(
+        [c.id for c in resolved.choices],
+        [
+            "rife-4.25-tensorrt",
+            "rife-4.25-lite-tensorrt",
+            "rife-4.25",
+            "rife-4.25-lite",
+        ],
+    )
+
 
 def test_method_choices_follow_the_quality_order(self):
     ids = [c.id for c in load().method_choices(("rtx", "rife-tensorrt"))]
-    self.assertEqual(ids, ["rtx-high", "rtx-medium", "rife-4.25-tensorrt",
-        "rife-4.25-lite-tensorrt", "rife-4.25", "rife-4.25-lite", "rtx-low"])
+    self.assertEqual(
+        ids,
+        [
+            "rtx-high",
+            "rtx-medium",
+            "rife-4.25-tensorrt",
+            "rife-4.25-lite-tensorrt",
+            "rife-4.25",
+            "rife-4.25-lite",
+            "rtx-low",
+        ],
+    )
+
 
 def test_methods_reject_unknown_names_and_platforms(self):
     with self.assertRaises(ManifestError):
@@ -88,15 +113,21 @@ def test_methods_reject_unknown_names_and_platforms(self):
     with self.assertRaises(UnsupportedPlatformError):
         load().resolve_profile("core", LINUX, methods=("rtx",))
 
+
 def test_only_tensorrt_is_not_preselected(self):
-    self.assertEqual([m.name for m in load().methods.values() if not m.preselect],
-                     ["rife-tensorrt"])
+    self.assertEqual(
+        [m.name for m in load().methods.values() if not m.preselect], ["rife-tensorrt"]
+    )
+
 
 def test_option_lists_are_in_the_manifest(self):
     options = load().interpolation
-    self.assertEqual([r.label for r in options.resolutions],
-                     ["720p", "1080p", "1440p", "4K", "8K"])
-    self.assertEqual((options.resolutions[3].width, options.resolutions[3].height), (4096, 2160))
+    self.assertEqual(
+        [r.label for r in options.resolutions], ["720p", "1080p", "1440p", "4K", "8K"]
+    )
+    self.assertEqual(
+        (options.resolutions[3].width, options.resolutions[3].height), (4096, 2160)
+    )
     self.assertEqual(options.frame_rates, (24, 30, 48, 60, 120))
     self.assertEqual(options.multipliers, (2, 3, 4))
     self.assertEqual(options.fps_cutoffs, (30, 48, 60, 90, 120))
@@ -165,14 +196,20 @@ def test_install_info_lists_choices_options_and_benchmark_command(self):
     result = installer.install("core", target, methods=("m",))
     info = json.loads((target / INSTALL_INFO).read_text("utf-8"))
     self.assertEqual([c["id"] for c in info["choices"]], ["b", "a"])
-    self.assertEqual(info["benchmark_command"][1:3], ["-m", "mpv_enhanced_installer.cli"])
+    self.assertEqual(
+        info["benchmark_command"][1:3], ["-m", "mpv_enhanced_installer.cli"]
+    )
     self.assertIn(str(target), info["benchmark_command"])
     self.assertEqual(result.receipt.methods, ("m",))
 
+
 def test_install_without_methods_writes_empty_choices(self): ...  # choices == []
 
+
 def test_settings_file_is_preserved(self):
-    self.assertIn("portable_config/script-opts/mpv_enhanced.json", DEFAULT_PRESERVED_PATHS)
+    self.assertIn(
+        "portable_config/script-opts/mpv_enhanced.json", DEFAULT_PRESERVED_PATHS
+    )
 ```
 
 In `tests/test_doctor.py` add `test_installed_methods_are_expected_in_the_receipt`: a receipt with `methods=("m",)` and the method's components gives `receipt:components` ok.
@@ -206,14 +243,15 @@ Expected: PASS.
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_first_runnable_method_starts_ticked(self):        # fixture with rtx, rife
+def test_first_runnable_method_starts_ticked(self):  # fixture with rtx, rife
     chosen, output = self.choose_methods("\n", unavailable={"rtx": "needs RTX 40"})
     self.assertEqual(chosen, ("rife",))
     self.assertIn("  -  rtx — unavailable: needs RTX 40", output)
     self.assertIn("  1. [x] rife — ", output)
 
-def test_tensorrt_is_never_preticked(self): ...            # only rife-tensorrt runnable: ()
-def test_numbers_toggle_methods(self): ...                 # "1\n" unticks the pre-ticked one
+
+def test_tensorrt_is_never_preticked(self): ...  # only rife-tensorrt runnable: ()
+def test_numbers_toggle_methods(self): ...  # "1\n" unticks the pre-ticked one
 def test_unattended_fresh_install_gets_no_methods(self): ...
 def test_existing_install_keeps_its_methods_without_asking(self): ...  # update path
 def test_profile_command_shows_screen_with_installed_marked(self): ...
@@ -254,12 +292,16 @@ Expected: PASS.
 ```python
 def test_parses_id_and_multiplier(self):
     self.assertEqual(parse_user_data("rtx-high/2"), ("rtx-high", Fraction(2)))
-    self.assertEqual(parse_user_data("rife-4.25-lite/3"), ("rife-4.25-lite", Fraction(3)))
+    self.assertEqual(
+        parse_user_data("rife-4.25-lite/3"), ("rife-4.25-lite", Fraction(3))
+    )
+
 
 def test_rejects_malformed_data(self):
     for text in ("", "rtx-high", "rtx-high/0", "rtx-high/x", "/2"):
         with self.assertRaises(ValueError):
             parse_user_data(text)
+
 
 def test_reads_settings_for_a_choice(self):  # JSON with one choice
     self.assertEqual(choice_settings(path, "a")["rtx_mode"], "HIGH")
@@ -305,32 +347,64 @@ Expected: `uv lock --check` passes.
 - [ ] **Step 2: Write the failing tests**
 
 ```python
-LIST = [t(4096, 2160, 30, "rtx-medium"), t(1920, 1080, 60, "rtx-high"), t(1920, 1080, 30, "rtx-high", 3)]
+LIST = [
+    t(4096, 2160, 30, "rtx-medium"),
+    t(1920, 1080, 60, "rtx-high"),
+    t(1920, 1080, 30, "rtx-high", 3),
+]
 
-def test_sorted_by_pixels_per_second_heaviest_first(self): ...
+
+def test_sorted_by_pixels_per_second_heaviest_first(self):
+    ...
     # 4K/24 sorts above 1080p/60
+
+
 def test_tightest_covering_target_wins(self):
     self.assertEqual(match(LIST, 1920, 1080, 23.976)["multiplier"], 3)
+
+
 def test_file_beyond_every_target_uses_the_highest(self):
     self.assertEqual(match(LIST, 7680, 4320, 24)["method"], "rtx-medium")
+
+
 def test_file_below_the_weakest_uses_the_weakest(self):
     self.assertEqual(match(LIST, 640, 360, 24)["multiplier"], 3)
+
+
 def test_dci_and_cropped_video_count_as_4k(self):
     self.assertEqual(match(LIST, 4096, 1716, 24)["method"], "rtx-medium")
+
+
 def test_portrait_video_fits_its_landscape_limit(self):
     self.assertEqual(match(LIST, 1080, 1920, 24)["multiplier"], 3)
+
+
 def test_at_or_above_the_cutoff_gets_no_filter(self):
     self.assertIsNone(resolve(settings(cutoff=60), 1920, 1080, 60))
+
+
 def test_cutoff_zero_means_off(self):
     self.assertIsNotNone(resolve(settings(cutoff=0), 1920, 1080, 120))
+
+
 def test_unknown_fps_is_not_interpolated(self):
     for fps in (None, 0):
         self.assertIsNone(resolve(settings(), 1920, 1080, fps))
+
+
 def test_no_targets_uses_the_default(self):
-    self.assertEqual(resolve(settings(targets=[]), 1920, 1080, 24)["method"], "rtx-high")
+    self.assertEqual(
+        resolve(settings(targets=[]), 1920, 1080, 24)["method"], "rtx-high"
+    )
+
+
 def test_none_method_gets_no_filter(self):
-    self.assertIsNone(resolve(settings(targets=[t(4096, 2160, 30, "none")]), 3840, 2160, 24))
-    self.assertIsNone(resolve(settings(targets=[], default_method="none"), 1920, 1080, 24))
+    self.assertIsNone(
+        resolve(settings(targets=[t(4096, 2160, 30, "none")]), 3840, 2160, 24)
+    )
+    self.assertIsNone(
+        resolve(settings(targets=[], default_method="none"), 1920, 1080, 24)
+    )
 ```
 
 - [ ] **Step 3: Run to verify failure**
@@ -361,35 +435,60 @@ Expected: FAIL because `targets` isn't found.
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_normalize_fills_defaults_for_missing_file(self): ...      # raw=None: defaults, no warning
+def test_normalize_fills_defaults_for_missing_file(
+    self,
+): ...  # raw=None: defaults, no warning
 def test_normalize_warns_and_drops_bad_targets(self):
-    settings, warning = normalize({"targets": [{"max_width": "x"}, good_target()]}, INFO)
+    settings, warning = normalize(
+        {"targets": [{"max_width": "x"}, good_target()]}, INFO
+    )
     self.assertEqual(len(to_py(settings["targets"])), 1)
     self.assertIsNotNone(warning)
-def test_normalize_survives_a_non_table(self): ...                 # raw="oops": defaults + warning
+
+
+def test_normalize_survives_a_non_table(self): ...  # raw="oops": defaults + warning
 def test_identical_limits_are_refused(self):
-    self.assertIn("already", apply(draft_with_two(), ["set_target", "t2", "resolution", "4K"]))
+    self.assertIn(
+        "already", apply(draft_with_two(), ["set_target", "t2", "resolution", "4K"])
+    )
+
+
 def test_edits_resort_the_list_and_keep_ids(self): ...
 def test_change_count_counts_one_edit_as_one(self):
     self.assertEqual(change_count(saved, after_one_method_edit), 1)
+
+
 def test_serialize_strips_ids(self): ...
 def test_add_target_uses_the_first_free_limits(self): ...
 def test_add_target_reports_when_every_combination_is_used(self): ...
 
+
 def test_menu_has_the_approved_rows(self):
     titles = [i["title"] for i in items(build(...))]
-    for title in ("Interpolation", "Default method", "Default multiplier", "FPS cutoff",
-                  "Target overrides", "Run benchmark", "Apply", "Discard changes"):
+    for title in (
+        "Interpolation",
+        "Default method",
+        "Default multiplier",
+        "FPS cutoff",
+        "Target overrides",
+        "Run benchmark",
+        "Apply",
+        "Discard changes",
+    ):
         self.assertIn(title, titles)
+
+
 def test_defaults_are_muted_only_while_targets_exist(self): ...
 def test_apply_shows_pending_count_and_is_disabled_at_zero(self): ...
 def test_method_list_has_installed_choices_and_none(self):
     titles = method_titles(build(...))
     self.assertEqual(titles[-1], "None")
     self.assertEqual(titles[0], "RTX High")
+
+
 def test_none_greys_out_the_multiplier(self): ...
 def test_no_methods_hides_interpolation_rows(self): ...
-def test_idle_menu_has_no_status_row(self): ...                    # status=None
+def test_idle_menu_has_no_status_row(self): ...  # status=None
 def test_target_rows_are_sorted_and_mark_the_current_one(self): ...
 ```
 
@@ -421,10 +520,21 @@ Neither references `mp`. Row titles and hints follow the approved mockup: `Inter
 ```python
 def test_declares_every_default_uosc_entry_and_ours(self):
     titles = [line.split("#!")[1].strip() for line in lines if "#!" in line]
-    for title in ("Subtitles", "Audio tracks", "Stream quality", "Playlist", "Chapters",
-                  "Navigation > Next", "Navigation > Open file", "Utils > Aspect ratio > 16:9",
-                  "Utils > Open config folder", "MPV Enhanced", "Quit"):
+    for title in (
+        "Subtitles",
+        "Audio tracks",
+        "Stream quality",
+        "Playlist",
+        "Chapters",
+        "Navigation > Next",
+        "Navigation > Open file",
+        "Utils > Aspect ratio > 16:9",
+        "Utils > Open config folder",
+        "MPV Enhanced",
+        "Quit",
+    ):
         self.assertIn(title, titles)
+
 
 def test_keeps_the_interpolation_hotkey(self):
     self.assertIn("ctrl+shift+r script-message-to mpv_enhanced toggle", text)
@@ -469,21 +579,34 @@ Expected: printed `vf` contains a filter labelled `interpolation` with the right
 
 ```python
 def test_reconcile_rewrites_targets_of_removed_methods(self):
-    save(app, {"targets": [target("old"), target("none"), target("keep")], "default_method": "old"})
+    save(
+        app,
+        {
+            "targets": [target("old"), target("none"), target("keep")],
+            "default_method": "old",
+        },
+    )
     reconcile_targets(app, ["keep", "other"])
-    self.assertEqual([t["method"] for t in load(app)["targets"]], ["keep", "none", "keep"])
+    self.assertEqual(
+        [t["method"] for t in load(app)["targets"]], ["keep", "none", "keep"]
+    )
     self.assertEqual(load(app)["default_method"], "keep")
+
 
 def test_reconcile_leaves_a_malformed_file_alone(self):
     (app / SETTINGS).write_text("{oops")
     reconcile_targets(app, ["keep"])
     self.assertEqual((app / SETTINGS).read_text(), "{oops")
 
+
 def test_reconcile_with_no_methods_changes_nothing(self): ...
 def test_set_enabled_creates_the_file_when_missing(self): ...
 def test_set_targets_keeps_other_settings(self): ...
 
-def test_first_install_asks_start_state(self): ...      # output has "Start with interpolation"
+
+def test_first_install_asks_start_state(
+    self,
+): ...  # output has "Start with interpolation"
 def test_enter_defaults_to_off_without_benchmark(self): ...
 def test_enter_defaults_to_on_after_accepted_benchmark(self): ...
 def test_unattended_and_updates_do_not_ask(self): ...
