@@ -157,7 +157,7 @@ class DoctorTests(unittest.TestCase):
             )
             self.assertTrue(all(check.ok for check in checks), checks)
 
-    def test_rife_audit_requires_runtime_launcher_python_and_model(self) -> None:
+    def test_rife_audit_requires_runtime_vsscript_python_and_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = prepare_source(root)
@@ -166,7 +166,7 @@ class DoctorTests(unittest.TestCase):
                 install / "mpv.exe",
                 install / "portable_config" / "mpv.conf",
                 install / "runtime" / "venv" / "Scripts" / "python.exe",
-                install / "mpv-enhanced.cmd",
+                install / "VSScript.dll",
             ]
             for path in required:
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -223,7 +223,7 @@ class DoctorTests(unittest.TestCase):
             uv = next(check for check in checks if check.name == "runtime:uv")
             self.assertFalse(uv.ok)
 
-    def test_linux_checks_system_mpv_and_requires_the_launcher(self) -> None:
+    def test_linux_checks_system_mpv_and_needs_no_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = prepare_source(root)
@@ -246,15 +246,7 @@ class DoctorTests(unittest.TestCase):
                 by_name = {check.name: check for check in checks}
                 self.assertTrue(by_name["system:system-mpv"].ok)
                 self.assertNotIn("installed:mpv", by_name)
-                self.assertFalse(by_name["installed:launcher"].ok)
-
-                (install / "mpv-enhanced").write_text("#!/bin/sh\n")
-                checks = run_doctor(
-                    test_manifest(),
-                    platform=PlatformInfo("linux", "x86_64"),
-                    source_root=source,
-                    install_dir=install,
-                )
+                self.assertNotIn("installed:launcher", by_name)
             self.assertTrue(all(check.ok for check in checks), checks)
 
 

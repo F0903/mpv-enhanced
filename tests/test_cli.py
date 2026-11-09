@@ -10,9 +10,13 @@ from unittest.mock import patch
 from mpv_enhanced_installer.cli import (
     NVIDIA_SOFTWARE_LICENSE_URL,
     NVIDIA_TENSORRT_SLA_URL,
+    _choose_optional,
+    _setup_answers,
     main,
 )
 from mpv_enhanced_installer.errors import InstallerError
+from mpv_enhanced_installer.manager import Layout
+from mpv_enhanced_installer.manifest import Manifest
 from mpv_enhanced_installer.platforms import PlatformInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +25,117 @@ ROOT = Path(__file__).resolve().parents[1]
 class TtyStringIO(StringIO):
     def isatty(self) -> bool:
         return True
+
+
+class OptionalScreenTests(unittest.TestCase):
+    @staticmethod
+    def component(description: str, system: str) -> dict[str, object]:
+        return {
+            "kind": "download",
+            "optional": True,
+            "description": description,
+            "url": "https://example.invalid/file",
+            "sha256": "0" * 64,
+            "os": {system: {"arch": ["x86_64"]}},
+        }
+
+    def choose(self, typed: str) -> tuple[tuple[str, ...], str]:
+        manifest = Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {
+                    "first": self.component("The first one", "windows"),
+                    "linux-only": self.component("Not here", "linux"),
+                    "second": self.component("The second one", "windows"),
+                },
+                "profiles": {"core": {"components": []}},
+            },
+        )
+        output = StringIO()
+        chosen = _choose_optional(
+            SimpleNamespace(
+                optional=None, install_dir=None, yes=False, command="install"
+            ),
+            manifest,
+            PlatformInfo("windows", "x86_64"),
+            Layout(Path("not-installed")),
+            TtyStringIO(typed),
+            output,
+        )
+        return chosen, output.getvalue()
+
+    def test_lists_each_component_and_marks_the_unavailable_ones(self) -> None:
+        chosen, output = self.choose("\n")
+        self.assertEqual(chosen, ())
+        self.assertIn("  1. [ ] first — The first one", output)
+        self.assertIn("  2. [ ] second — The second one", output)
+        self.assertIn("  -  linux-only — unavailable on windows-x86_64", output)
+
+    def test_several_can_be_picked_and_keep_manifest_order(self) -> None:
+        self.assertEqual(self.choose("2, 1\n")[0], ("first", "second"))
+
+    def test_rejects_a_number_that_is_not_listed(self) -> None:
+        for typed in ("3\n", "0\n", "first\n"):
+            with self.assertRaisesRegex(InstallerError, "invalid component selection"):
+                self.choose(typed)
+
+
+class SetupScreenTests(unittest.TestCase):
+    @staticmethod
+    def component(name: str, *, setup: bool = True) -> dict[str, object]:
+        table: dict[str, object] = {
+            **OptionalScreenTests.component(f"About {name}", "windows")
+        }
+        if setup:
+            table["setup"] = {
+                "question": "Server",
+                "file": f"{name}.conf",
+                "line": "server={answer}\n",
+                "matches": "https?://.+",
+            }
+        return table
+
+    def run_screen(
+        self, optional: tuple[str, ...], typed: str
+    ) -> tuple[dict[str, str], str]:
+        manifest = Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {
+                    "first": self.component("first"),
+                    "configured": self.component("configured"),
+                    "no-setup": self.component("no-setup", setup=False),
+                    "last": self.component("last"),
+                },
+                "profiles": {"core": {"components": []}},
+            },
+        )
+        output = StringIO()
+        with TemporaryDirectory() as temporary:
+            (Path(temporary) / "configured.conf").write_text("server=http://kept")
+            answers = _setup_answers(
+                SimpleNamespace(install_dir=temporary, yes=False),
+                manifest,
+                optional,
+                Layout(Path("not-installed")),
+                TtyStringIO(typed),
+                output,
+            )
+        return answers, output.getvalue()
+
+    def test_goes_through_each_component_that_still_needs_input(self) -> None:
+        answers, output = self.run_screen(
+            ("first", "configured", "no-setup", "last"), "http://first\n\n"
+        )
+        self.assertEqual(answers, {"first": "http://first"})
+        self.assertIn("Set up optional components:", output)
+        self.assertIn("[1/2] first — About first", output)
+        self.assertIn("[2/2] last — About last", output)
+        self.assertNotIn("configured", output)
+        self.assertNotIn("no-setup", output)
+
+    def test_does_not_appear_when_nothing_needs_input(self) -> None:
+        self.assertEqual(self.run_screen(("configured", "no-setup"), ""), ({}, ""))
 
 
 class CliTests(unittest.TestCase):
@@ -119,7 +234,7 @@ class CliTests(unittest.TestCase):
                 )
                 code = main(
                     self._install_args("rife-tensorrt", target, cache),
-                    stdin=TtyStringIO("accept\n"),
+                    stdin=TtyStringIO("\naccept\n"),
                     stdout=output,
                     stderr=errors,
                 )
@@ -138,7 +253,7 @@ class CliTests(unittest.TestCase):
             with patch("mpv_enhanced_installer.cli.ArtifactCache") as artifact_cache:
                 code = main(
                     self._install_args("rife-tensorrt", target, cache),
-                    stdin=TtyStringIO("yes\n"),
+                    stdin=TtyStringIO("\nyes\n"),
                     stdout=output,
                     stderr=errors,
                 )
@@ -158,7 +273,6 @@ class CliTests(unittest.TestCase):
             cache = Path(temporary) / "cache"
             target.mkdir()
             (target / "mpv.exe").write_bytes(b"")
-            (target / "mpv-enhanced.cmd").write_text("")
             with (
                 patch("mpv_enhanced_installer.cli.ArtifactCache"),
                 patch("mpv_enhanced_installer.cli.Installer") as installer,
@@ -180,9 +294,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, errors.getvalue())
             self.assertNotIn(NVIDIA_TENSORRT_SLA_URL, output.getvalue())
             installer.return_value.install.assert_called_once()
-            # RIFE installs must be started through the launcher, not mpv.exe.
             self.assertIn(
-                f"Start mpv-enhanced with: {target / 'mpv-enhanced.cmd'}",
+                f"Start mpv-enhanced with: {target / 'mpv.exe'}",
                 output.getvalue(),
             )
 

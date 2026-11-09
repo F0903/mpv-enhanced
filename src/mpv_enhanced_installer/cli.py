@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import sys
 from collections.abc import Sequence
@@ -14,7 +15,7 @@ from .doctor import run_doctor
 from .downloads import ArtifactCache, Downloader, download_url
 from .errors import InstallerError
 from .installer import Installer, check_gpu, check_system_program
-from .manager import Layout, rollback, update, use
+from .manager import Layout, is_in_use, rollback, update, use
 from .manifest import Manifest
 from .platforms import PlatformInfo, running_in_wsl
 from .version import VERSION
@@ -79,6 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
             "--install-dir",
             type=Path,
             help="install here instead of under live/, outside version management",
+        )
+        install.add_argument(
+            "--with",
+            dest="optional",
+            action="append",
+            metavar="COMPONENT",
+            help="add an optional component (see list-profiles); can be repeated",
         )
         install.add_argument("--cache-dir", type=Path, default=_default_cache_dir())
         install.add_argument(
@@ -194,6 +202,8 @@ def main(
             ).components:
                 if component.gpu is not None:
                     check_gpu(component.gpu)
+            optional = _choose_optional(args, manifest, platform, layout, stdin, stdout)
+            answers = _setup_answers(args, manifest, optional, layout, stdin, stdout)
             _require_nvidia_license_acceptance(
                 args,
                 manifest,
@@ -207,6 +217,7 @@ def main(
                 ArtifactCache(args.cache_dir, downloader=downloader),
                 source_root=source_root,
                 platform=platform,
+                report=lambda message: print(message, file=stdout, flush=True),
             )
             managed = args.install_dir is None
             if managed:
@@ -216,6 +227,8 @@ def main(
                 args.install_dir or layout.app(VERSION),
                 offline=args.offline,
                 carry_from=layout.carry_source(VERSION) if managed else None,
+                optional=optional,
+                answers=answers,
             )
             print(
                 f"Installed {result.receipt.release} ({result.receipt.profile}) to "
@@ -223,30 +236,37 @@ def main(
                 file=stdout,
             )
             if managed:
-                layout.finish_install(VERSION, platform)
+                layout.finish_install(VERSION)
                 # Older versions are the rollback path, so this copy isn't needed.
                 if result.previous_dir is not None:
                     shutil.rmtree(result.previous_dir, ignore_errors=True)
                 print(
-                    f"Start mpv-enhanced with: {layout.launcher(platform)}", file=stdout
+                    f"Start mpv-enhanced with: {layout.player(VERSION, platform)}",
+                    file=stdout,
                 )
+                if not is_in_use(layout):
+                    print("Run mpve use to make mpv use this install.", file=stdout)
                 return 0
             if result.previous_dir is not None:
                 print(
                     f"Previous installation retained at {result.previous_dir}",
                     file=stdout,
                 )
-            # A launcher exists where mpv needs one (RIFE, Linux, macOS).
             start = next(
                 (
                     path
-                    for name in ("mpv-enhanced.cmd", "mpv-enhanced", "mpv.exe")
+                    for name in ("mpv.exe", "mpv.app/Contents/MacOS/mpv")
                     if (path := result.install_dir / name).is_file()
                 ),
-                None,
+                "mpv",
             )
-            if start is not None:
-                print(f"Start mpv-enhanced with: {start}", file=stdout)
+            # Only Windows mpv finds a configuration beside itself.
+            config = (
+                ""
+                if platform.system == "windows"
+                else f' --config-dir="{result.install_dir / "portable_config"}"'
+            )
+            print(f"Start mpv-enhanced with: {start}{config}", file=stdout)
             return 0
         parser.error(f"unknown command: {args.command}")
     except InstallerError as exc:
@@ -266,7 +286,7 @@ def _status(layout: Layout, platform: PlatformInfo, output: TextIO) -> int:
         return 0
     print(f"mpv-enhanced {active}", file=output)
     print(f"Profile: {layout.profile(active) or 'unknown'}", file=output)
-    print(f"Start with: {layout.launcher(platform)}", file=output)
+    print(f"Start with: {layout.player(active, platform)}", file=output)
     previous = layout.previous()
     if previous:
         print(f"Previous version: {previous} (mpve rollback)", file=output)
@@ -329,7 +349,97 @@ def _list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) -
         else:
             status = f"unavailable: {reason}"
         print(f"{name}\t{status}\t{profile.description}", file=output)
+    for component in manifest.optional_components(platform):
+        print(f"{component.name}\toptional\t{component.description}", file=output)
     return 0
+
+
+def _choose_optional(
+    args: argparse.Namespace,
+    manifest: Manifest,
+    platform: PlatformInfo,
+    layout: Layout,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> tuple[str, ...]:
+    """Pick optional components; updates keep what the active version has."""
+    if args.optional is not None:
+        return tuple(args.optional)
+    active = None if args.install_dir else layout.active()
+    installed = layout.components(active) if active else ()
+    names = [item.name for item in manifest.optional_components(platform)]
+    chosen = {name for name in names if name in installed}
+    ask = stdin.isatty() and not args.yes and (not active or args.command == "profile")
+    if names and ask:
+        print("Choose optional components:", file=stdout)
+        for component in manifest.components.values():
+            if not component.optional:
+                continue
+            if component.name not in names:
+                print(
+                    f"  -  {component.name} — unavailable on {platform.key}",
+                    file=stdout,
+                )
+                continue
+            mark = "x" if component.name in chosen else " "
+            print(
+                f"  {names.index(component.name) + 1}. [{mark}] {component.name} — "
+                f"{component.description}",
+                file=stdout,
+            )
+        print(
+            "Numbers to toggle, separated by spaces (Enter to continue): ",
+            end="",
+            flush=True,
+            file=stdout,
+        )
+        for number in stdin.readline().replace(",", " ").split():
+            if not number.isdecimal() or not 1 <= int(number) <= len(names):
+                raise InstallerError(f"invalid component selection: {number!r}")
+            chosen ^= {names[int(number) - 1]}
+    return tuple(name for name in names if name in chosen)
+
+
+def _setup_answers(
+    args: argparse.Namespace,
+    manifest: Manifest,
+    optional: tuple[str, ...],
+    layout: Layout,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> dict[str, str]:
+    """Go through the chosen components that still need settings."""
+    answers: dict[str, str] = {}
+    if args.yes or not stdin.isatty():
+        return answers
+    existing = args.install_dir or _active_app(layout)
+    pending = [
+        component
+        for component in (manifest.components.get(name) for name in optional)
+        if component is not None
+        and component.setup is not None
+        and not (existing and Path(existing, component.setup.file).exists())
+    ]
+    if pending:
+        print("Set up optional components:", file=stdout)
+    for index, component in enumerate(pending, 1):
+        setup = component.setup
+        assert setup is not None
+        print(
+            f"  [{index}/{len(pending)}] {component.name} — {component.description}",
+            file=stdout,
+        )
+        while True:
+            print(
+                f"  {setup.question} (Enter to skip): ", end="", flush=True, file=stdout
+            )
+            answer = stdin.readline().strip()
+            if not answer or re.fullmatch(setup.matches, answer):
+                break
+            print(f"  That doesn't look like a {setup.question}.", file=stdout)
+        if answer:
+            answers[component.name] = answer
+    return answers
 
 
 def _install_profile(

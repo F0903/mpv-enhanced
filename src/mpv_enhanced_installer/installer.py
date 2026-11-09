@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +30,9 @@ from .version import VERSION
 DEFAULT_PRESERVED_PATHS = (
     "portable_config/mpv-local.conf",
     "portable_config/rife_config_local.py",
+    # mpvfin's server, and its saved login and device ID.
+    "portable_config/script-opts/mpvfin.conf",
+    "portable_config/script-opts/mpvfin-state.json",
     # mpv resume points, and caches such as TensorRT engines (slow to rebuild).
     "portable_config/watch_later",
     "portable_config/cache",
@@ -123,6 +126,7 @@ class Installer:
         system_check: Callable[[SystemProgram], tuple[str, str]] = check_system_program,
         gpu_check: Callable[[GpuRequirement], str] = check_gpu,
         preserved_paths: tuple[str, ...] = DEFAULT_PRESERVED_PATHS,
+        report: Callable[[str], None] = lambda _message: None,
     ) -> None:
         self.manifest = manifest
         self.cache = cache
@@ -131,6 +135,7 @@ class Installer:
         self.runtime_builder = runtime_builder or UvRuntimeBuilder()
         self.system_check = system_check
         self.gpu_check = gpu_check
+        self.report = report
         self.preserved_paths = tuple(
             validate_relative_path(item, "preserved path") for item in preserved_paths
         )
@@ -142,8 +147,12 @@ class Installer:
         *,
         offline: bool = False,
         carry_from: Path | None = None,
+        optional: tuple[str, ...] = (),
+        answers: Mapping[str, str] | None = None,
     ) -> InstallResult:
-        profile = self.manifest.resolve_profile(profile_name, self.platform)
+        profile = self.manifest.resolve_profile(
+            profile_name, self.platform, optional=optional
+        )
         if offline and any(
             component.kind == "uv-runtime" for component in profile.components
         ):
@@ -163,19 +172,15 @@ class Installer:
         staging.mkdir()
         installed_components: list[InstalledComponent] = []
         try:
-            for component in profile.components:
+            total = len(profile.components)
+            for index, component in enumerate(profile.components, 1):
+                self.report(f"[{index}/{total}] {component.name}")
                 installed_components.append(
                     self._stage_component(component, staging, offline=offline)
                 )
             runtime = next(
                 (item.runtime for item in profile.components if item.runtime), None
             )
-            # Windows mpv.exe finds portable_config itself; elsewhere a launcher
-            # points mpv at it, and RIFE needs one everywhere for VSSCRIPT_PATH.
-            if runtime is not None or self.platform.system != "windows":
-                self.runtime_builder.write_launcher(
-                    staging_root=staging, runtime=runtime, platform=self.platform
-                )
             if runtime is not None:
                 self.runtime_builder.retarget(
                     runtime=runtime,
@@ -185,6 +190,7 @@ class Installer:
                 )
             self._write_managed_profile(staging, profile)
             self._preserve_user_files(carry_from or target, staging)
+            self._apply_setup(staging, profile, answers or {})
             receipt = InstallationReceipt.create(
                 release=VERSION,
                 profile=profile.name,
@@ -193,6 +199,8 @@ class Installer:
             )
             receipt.write(staging)
             previous = promote_staging(staging, target)
+            if runtime is not None:
+                self.runtime_builder.register_vsscript(runtime, target, self.platform)
             return InstallResult(target, previous, receipt)
         except Exception:
             if staging.exists():
@@ -320,6 +328,27 @@ class Installer:
             encoding="utf-8",
             newline="\n",
         )
+
+    def _apply_setup(
+        self,
+        staging: Path,
+        profile: ResolvedProfile,
+        answers: Mapping[str, str],
+    ) -> None:
+        for component in profile.components:
+            setup = component.setup
+            if setup is None:
+                continue
+            path = _inside(staging, setup.file)
+            if component.name in answers:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                text = setup.line.format(answer=answers[component.name])
+                path.write_text(text, encoding="utf-8")
+            elif not path.exists():
+                self.report(
+                    f"Note: {component.name} has no {setup.question} yet; "
+                    f"set it in {setup.file}"
+                )
 
     def _preserve_user_files(self, current: Path, staging: Path) -> None:
         for relative in self.preserved_paths:

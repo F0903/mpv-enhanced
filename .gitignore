@@ -9,11 +9,8 @@ build/
 dist/
 *.egg-info/
 
-# Installed versions and the launcher that points at the active one
+# Installed versions
 live/
-/shims/
-/mpv-enhanced
-/mpv-enhanced.cmd
 
 # Installer runtime and download cache
 .mpv-enhanced-cache/

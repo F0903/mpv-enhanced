@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import urllib.error
@@ -25,18 +24,15 @@ from .receipt import RECEIPT_FILENAME, InstallationReceipt
 from .version import VERSION
 
 KEPT_VERSIONS = 2
-SHIM_MARKER = "# mpv-enhanced shim"
+LOADER_CONFIG = Path("/etc/ld.so.conf.d/mpv-enhanced.conf")
 NOT_RELEASE_FILES = (
     "live",
-    "shims",
     ".git",
     ".venv",
     ".uv-cache",
     ".bootstrap",
     "controller-python",
     "__pycache__",
-    "mpv-enhanced",
-    "mpv-enhanced.cmd",
 )
 
 
@@ -72,9 +68,17 @@ class Layout:
     def release(self, version: str) -> Path:
         return self.live / version / "release"
 
-    def launcher(self, platform: PlatformInfo) -> Path:
-        name = "mpv-enhanced.cmd" if platform.system == "windows" else "mpv-enhanced"
-        return self.root / name
+    def player(self, version: str, platform: PlatformInfo) -> Path:
+        """What starts this version; Linux uses the system's mpv."""
+        if platform.system == "linux":
+            return Path("mpv")
+        if platform.system == "macos":
+            return self.app(version) / "mpv.app" / "Contents" / "MacOS" / "mpv"
+        return self.app(version) / "mpv.exe"
+
+    def path_entries(self, version: str) -> list[Path]:
+        """The Windows PATH folders for this version: mpv, then mpve at the root."""
+        return [self.app(version), self.root]
 
     def active(self) -> str | None:
         try:
@@ -94,14 +98,28 @@ class Layout:
         active = self.active()
         return next((item for item in self.versions() if item != active), None)
 
-    def profile(self, version: str) -> str | None:
+    def _receipt(self, version: str) -> InstallationReceipt | None:
         try:
-            receipt = InstallationReceipt.load(self.app(version) / RECEIPT_FILENAME)
+            return InstallationReceipt.load(self.app(version) / RECEIPT_FILENAME)
         except InstallerError:
             return None
-        return receipt.profile
+
+    def profile(self, version: str) -> str | None:
+        receipt = self._receipt(version)
+        return receipt.profile if receipt else None
+
+    def components(self, version: str) -> tuple[str, ...]:
+        receipt = self._receipt(version)
+        return tuple(item.name for item in receipt.components) if receipt else ()
 
     def activate(self, version: str) -> None:
+        # First, so that a failure here leaves the previous version active.
+        if os.name == "nt":
+            set_user_path(self.path_entries(version), self.live, only_if_present=True)
+        else:
+            link_version(
+                self, version, PlatformInfo.detect(), Path.home(), only_if_present=True
+            )
         temporary = self.current_file.with_name(f".current-{uuid.uuid4().hex}")
         temporary.write_text(version, "utf-8")
         os.replace(temporary, self.current_file)
@@ -122,79 +140,108 @@ class Layout:
             return None
         return self.app(active)
 
-    def finish_install(self, version: str, platform: PlatformInfo) -> None:
+    def finish_install(self, version: str) -> None:
         self.activate(version)
-        self._write_launcher(platform)
         kept = [version, *(item for item in self.versions() if item != version)]
         for stale in kept[KEPT_VERSIONS:]:
             shutil.rmtree(self.live / stale, ignore_errors=True)
 
-    def _write_launcher(self, platform: PlatformInfo) -> None:
-        launcher = self.launcher(platform)
-        if platform.system == "windows":
-            # No parenthesized block: a ")" in the install path would end it early.
-            lines = [
-                "@echo off",
-                "setlocal",
-                'set /p ACTIVE=<"%~dp0live\\current"',
-                'set "APP=%~dp0live\\%ACTIVE%\\app"',
-                (
-                    'if exist "%APP%\\mpv-enhanced.cmd" '
-                    'call "%APP%\\mpv-enhanced.cmd" %* & exit /b'
-                ),
-                '"%APP%\\mpv.exe" %*',
-            ]
-            launcher.write_text(
-                "\n".join(lines) + "\n", encoding="utf-8", newline="\r\n"
-            )
+
+def _config_link(home: Path) -> Path:
+    """Where mpv looks for its configuration on Linux and macOS."""
+    return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "mpv"
+
+
+def _is_ours(link: Path, layout: Layout) -> bool:
+    return link.is_symlink() and Path(os.readlink(link)).is_relative_to(layout.root)
+
+
+def _replace_link(link: Path, target: Path) -> None:
+    if link.is_symlink() and Path(os.readlink(link)) == target:
+        return
+    link.parent.mkdir(parents=True, exist_ok=True)
+    temporary = link.with_name(f".{link.name}-{uuid.uuid4().hex}")
+    temporary.symlink_to(target)
+    os.replace(temporary, link)
+
+
+def _point_loader_at(folder: Path, run: Callable[..., Any]) -> None:
+    """Let mpv find libvsscript.so, which it loads by bare name."""
+    try:
+        if LOADER_CONFIG.read_text("utf-8") == f"{folder}\n":
             return
-        lines = [
-            "#!/bin/sh",
-            'root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1',
-            'exec "$root/live/$(cat "$root/live/current")/app/mpv-enhanced" "$@"',
-        ]
-        launcher.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-        launcher.chmod(launcher.stat().st_mode | 0o111)
+    except FileNotFoundError:
+        pass
+    script = 'printf "%s\\n" "$1" > "$2" && ldconfig'
+    sudo = [] if os.geteuid() == 0 else ["sudo"]
+    command = [*sudo, "sh", "-c", script, "sh", str(folder), str(LOADER_CONFIG)]
+    if run(command, check=False).returncode:
+        raise InstallerError(f"could not update {LOADER_CONFIG}; mpv needs it for RIFE")
 
 
-def _write_windows_shims(layout: Layout) -> Path:
-    shims = layout.root / "shims"
-    shims.mkdir(exist_ok=True)
-    for name, target in (("mpv", "mpv-enhanced.cmd"), ("mpve", "mpve.cmd")):
-        (shims / f"{name}.cmd").write_text(
-            f'@call "%~dp0..\\{target}" %*\n', encoding="utf-8", newline="\r\n"
+def link_version(
+    layout: Layout,
+    version: str,
+    platform: PlatformInfo,
+    home: Path,
+    *,
+    only_if_present: bool = False,
+    run: Callable[..., Any] = subprocess.run,
+) -> None:
+    """Point this user's mpv at a version with symlinks, so it needs no launcher.
+
+    With ``only_if_present``, does nothing until ``mpve use`` has set this up.
+    """
+    app = layout.app(version)
+    config = _config_link(home)
+    if only_if_present and not _is_ours(config, layout):
+        return
+    links = {
+        config: app / "portable_config",
+        home / ".local" / "bin" / "mpve": layout.root / "mpve.sh",
+    }
+    if platform.system == "macos":
+        links[home / ".local" / "bin" / "mpv"] = (
+            app / "mpv.app" / "Contents" / "MacOS" / "mpv"
         )
-    return shims
+    for link in links:
+        if (link.exists() or link.is_symlink()) and not _is_ours(link, layout):
+            raise InstallerError(f"{link} already exists; move it away first")
+    pattern = "runtime/*/lib/python*/site-packages/vapoursynth/libvsscript.so"
+    if library := next(app.glob(pattern), None):
+        _point_loader_at(library.parent, run)
+    for link, target in links.items():
+        _replace_link(link, target)
 
 
-def _write_posix_shims(layout: Layout, home: Path) -> Path:
-    directory = home / ".local" / "bin"
-    directory.mkdir(parents=True, exist_ok=True)
-    for name, target in (("mpv", "mpv-enhanced"), ("mpve", "mpve.sh")):
-        shim = directory / name
-        if shim.exists() and SHIM_MARKER not in shim.read_text(
-            encoding="utf-8", errors="ignore"
-        ):
-            raise InstallerError(f"{shim} already exists; remove it first")
-        lines = [
-            "#!/bin/sh",
-            SHIM_MARKER,
-            # On Linux the launcher runs the system mpv by name, not this shim.
-            'here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
-            "PATH=$(printf '%s' \"$PATH\" | tr ':' '\\n' | grep -vxF \"$here\" | paste -sd: -)",
-            "export PATH",
-            f'exec {shlex.quote(str(layout.root / target))} "$@"',
-        ]
-        shim.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-        shim.chmod(0o755)
-    return directory
+def is_in_use(layout: Layout) -> bool:
+    """Whether ``mpve use`` has already pointed this system at an installed version."""
+    if os.name != "nt":
+        return _is_ours(_config_link(Path.home()), layout)
+    found = shutil.which("mpv")
+    return found is not None and Path(found).is_relative_to(layout.live)
 
 
-def add_to_user_path(directory: Path, subkey: str = "Environment") -> bool:
-    """Add a directory to the Windows user PATH. Returns False if already there."""
+def set_user_path(
+    directories: list[Path],
+    versions: Path,
+    *,
+    only_if_present: bool = False,
+    subkey: str = "Environment",
+) -> None:
+    """Put folders first on the Windows user PATH, replacing any inside ``versions``.
+
+    With ``only_if_present``, does nothing unless a folder inside ``versions`` is
+    already there, so that switching versions never adds mpv to PATH by itself.
+    """
     import ctypes
     import winreg
 
+    def normal(entry: Path | str) -> str:
+        return str(entry).rstrip("\\").casefold()
+
+    prefix = normal(versions) + "\\"
+    wanted = {normal(directory) for directory in directories}
     with winreg.CreateKeyEx(
         winreg.HKEY_CURRENT_USER, subkey, 0, winreg.KEY_READ | winreg.KEY_WRITE
     ) as key:
@@ -203,15 +250,23 @@ def add_to_user_path(directory: Path, subkey: str = "Environment") -> bool:
         except FileNotFoundError:
             value, kind = "", winreg.REG_EXPAND_SZ
         entries = [entry for entry in value.split(";") if entry]
-        wanted = str(directory).rstrip("\\").casefold()
-        if any(entry.rstrip("\\").casefold() == wanted for entry in entries):
-            return False
-        winreg.SetValueEx(key, "Path", 0, kind, ";".join([str(directory), *entries]))
+        if only_if_present and not any(
+            normal(entry).startswith(prefix) for entry in entries
+        ):
+            return
+        kept = [
+            entry
+            for entry in entries
+            if normal(entry) not in wanted and not normal(entry).startswith(prefix)
+        ]
+        result = [*map(str, directories), *kept]
+        if result == entries:
+            return
+        winreg.SetValueEx(key, "Path", 0, kind, ";".join(result))
     # Tells Explorer, so that terminals opened from now on see the new PATH.
     ctypes.windll.user32.SendMessageTimeoutW(
         0xFFFF, 0x001A, 0, "Environment", 2, 5000, None
     )
-    return True
 
 
 def use(
@@ -219,34 +274,40 @@ def use(
     version: str | None,
     platform: PlatformInfo,
     *,
-    add_to_path: Callable[[Path], bool] = add_to_user_path,
+    add_to_path: Callable[[list[Path], Path], None] = set_user_path,
     home: Path | None = None,
     which: Callable[[str], str | None] = shutil.which,
 ) -> list[str]:
-    """Activate an installed version and put ``mpv`` and ``mpve`` on the PATH."""
+    """Activate an installed version and make it the one ``mpv`` and ``mpve`` run."""
     version = version or layout.active()
     if version is None:
         raise InstallerError("nothing is installed yet; run mpve install first")
     if version not in layout.versions():
         installed = ", ".join(layout.versions()) or "none"
         raise InstallerError(f"{version} is not installed (installed: {installed})")
-    layout.activate(version)
-    layout._write_launcher(platform)
-
+    home = home or Path.home()
     messages = [f"Now using {version}"]
     if platform.system == "windows":
-        directory = _write_windows_shims(layout)
-        if add_to_path(directory):
-            messages.append(
-                f"Added {directory} to your PATH. "
-                "Open a new terminal to use mpv and mpve."
-            )
+        directory = layout.app(version)
+        add_to_path(layout.path_entries(version), layout.live)
+        messages.append(
+            f"{directory} is on your PATH. Open a new terminal to use mpv and mpve."
+        )
     else:
-        directory = _write_posix_shims(layout, home or Path.home())
+        link_version(layout, version, platform, home)
+        directory = home / ".local" / "bin"
         if str(directory) not in os.environ.get("PATH", "").split(os.pathsep):
-            messages.append(f"Add {directory} to your PATH to use mpv and mpve.")
+            names = "mpve" if platform.system == "linux" else "mpv and mpve"
+            messages.append(f"Add {directory} to your PATH to use {names}.")
+    layout.activate(version)
     existing = which("mpv")
-    if existing and Path(existing).parent != directory:
+    # On Linux the system mpv is the one this configures.
+    if (
+        existing
+        and platform.system != "linux"
+        and Path(existing).parent != directory
+        and not Path(existing).is_relative_to(layout.live)
+    ):
         messages.append(f"Note: {existing} is also on your PATH and may run instead.")
     return messages
 

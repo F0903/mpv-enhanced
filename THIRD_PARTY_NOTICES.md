@@ -23,6 +23,7 @@ artifact from its publisher, verifies it, and installs it for the user.
 | Component | Pinned in | Publisher and terms |
 | --- | --- | --- |
 | mpv (Windows, macOS) | `manifest.toml` | [mpv releases](https://github.com/mpv-player/mpv/releases); GPL. Source is published with each release. On Linux the distribution's mpv is used instead. |
+| mpvfin (optional, Windows) | `manifest.toml` | [mpvfin releases](https://github.com/F0903/mpvfin/releases), by this project's author. Downloaded only if chosen. |
 | uv | `uv.pin` | [Astral releases](https://github.com/astral-sh/uv/releases); Apache-2.0 or MIT. |
 | CPython (installer and RIFE runtime) | `.python-version` | Downloaded by uv from python-build-standalone; PSF and bundled-component terms. |
 | VapourSynth | `runtime/rife/uv.lock` | [PyPI](https://pypi.org/project/VapourSynth/); LGPL-2.1-or-later. |

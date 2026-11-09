@@ -107,6 +107,16 @@ class GpuRequirement:
     requirement: str
 
 
+@dataclass(frozen=True, slots=True)
+class ComponentSetup:
+    """One value to ask the user for, saved to a file in the install."""
+
+    question: str
+    file: str
+    line: str
+    matches: str
+
+
 def parse_version(text: str) -> tuple[int, ...] | None:
     """Return the first ``major.minor[.patch]`` found in ``text``."""
     match = _VERSION.search(text)
@@ -126,6 +136,9 @@ class Component:
     system: SystemProgram | None = None
     config_key: str | None = None
     gpu: GpuRequirement | None = None
+    optional: bool = False
+    description: str = ""
+    setup: ComponentSetup | None = None
 
     def supports(self, platform: PlatformInfo) -> bool:
         # shortcut: a download missing a whole OS is skipped rather than an error,
@@ -219,10 +232,19 @@ class Manifest:
             manifest.resolve_profile(name)
         return manifest
 
+    def optional_components(self, platform: PlatformInfo) -> tuple[Component, ...]:
+        return tuple(
+            item
+            for item in self.components.values()
+            if item.optional and platform.key in item.platforms
+        )
+
     def resolve_profile(
         self,
         name: str,
         platform: PlatformInfo | None = None,
+        *,
+        optional: tuple[str, ...] = (),
     ) -> ResolvedProfile:
         if name not in self.profiles:
             choices = ", ".join(sorted(self.profiles))
@@ -259,6 +281,21 @@ class Manifest:
             visited.add(profile_name)
 
         visit(name, ())
+        for item in optional:
+            component = self.components.get(item)
+            if component is None or not component.optional:
+                choices = ", ".join(
+                    sorted(c.name for c in self.components.values() if c.optional)
+                )
+                raise ManifestError(
+                    f"unknown optional component {item!r}; available: {choices or 'none'}"
+                )
+            if platform is not None and platform.key not in component.platforms:
+                raise UnsupportedPlatformError(
+                    f"optional component {item!r} does not support {platform.key}"
+                )
+            if item not in ordered_names:
+                ordered_names.append(item)
         profile = self.profiles[name]
         components = tuple(
             replace(item, runtime=replace(item.runtime, extras=tuple(extras)))
@@ -358,6 +395,9 @@ def _parse_component(
     if not artifacts:
         raise ManifestError(f"component {name!r} contains no artifacts")
     config_key = data.get("config_key")
+    optional = data.get("optional", False)
+    if not isinstance(optional, bool):
+        raise ManifestError(f"components.{name}.optional must be true or false")
     return Component(
         name=name,
         version=version,
@@ -371,6 +411,39 @@ def _parse_component(
             if config_key is not None
             else None
         ),
+        optional=optional,
+        description=(
+            _string(data.get("description"), f"components.{name}.description")
+            if optional
+            else ""
+        ),
+        setup=_parse_setup(name, data["setup"]) if "setup" in data else None,
+    )
+
+
+def _pattern(value: object, label: str) -> str:
+    pattern = _string(value, label)
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise ManifestError(f"{label} is not a valid pattern: {exc}") from exc
+    return pattern
+
+
+def _parse_setup(name: str, value: object) -> ComponentSetup:
+    label = f"components.{name}.setup"
+    data = _table(value, label)
+    line = _string(data.get("line"), f"{label}.line")
+    if _expand(line, {"answer": ""}, f"{label}.line") == line:
+        raise ManifestError(f"{label}.line must contain {{answer}}")
+    # _string strips, and the line's own newline has to survive.
+    return ComponentSetup(
+        question=_string(data.get("question"), f"{label}.question"),
+        file=validate_relative_path(
+            _string(data.get("file"), f"{label}.file"), f"{label}.file"
+        ),
+        line=str(data["line"]),
+        matches=_pattern(data.get("matches"), f"{label}.matches"),
     )
 
 
@@ -503,11 +576,7 @@ def _parse_gpu_component(
     platforms: tuple[str, ...],
 ) -> Component:
     label = f"components.{name}"
-    matches = _string(data.get("matches"), f"{label}.matches")
-    try:
-        re.compile(matches)
-    except re.error as exc:
-        raise ManifestError(f"{label}.matches is not a valid pattern: {exc}") from exc
+    matches = _pattern(data.get("matches"), f"{label}.matches")
     return Component(
         name=name,
         version="gpu",

@@ -45,6 +45,99 @@ def local_manifest(path: str = "portable_config") -> Manifest:
     )
 
 
+class OptionalComponentTests(unittest.TestCase):
+    PAYLOAD = b"plugin"
+
+    def manifest(self) -> Manifest:
+        return Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {
+                    "config": {
+                        "kind": "local",
+                        "path": "portable_config",
+                        "destination": "portable_config",
+                    },
+                    "plugin": {
+                        "kind": "download",
+                        "optional": True,
+                        "description": "A plugin",
+                        "version": "1",
+                        "url": "https://example.invalid/plugin.dll",
+                        "sha256": hashlib.sha256(self.PAYLOAD).hexdigest(),
+                        "destination": "portable_config/scripts/plugin.dll",
+                        "setup": {
+                            "question": "Server",
+                            "file": "portable_config/script-opts/mpvfin.conf",
+                            "line": "server={answer}\n",
+                            "matches": "https?://.+",
+                        },
+                        "os": {"windows": {"arch": ["x86_64"]}},
+                    },
+                },
+                "profiles": {"core": {"components": ["config"]}},
+            },
+        )
+
+    def installer(self, root: Path, report=lambda _message: None) -> Installer:
+        (root / "source" / "portable_config").mkdir(parents=True, exist_ok=True)
+
+        def download(_url: str, destination: Path) -> None:
+            destination.write_bytes(self.PAYLOAD)
+
+        return Installer(
+            self.manifest(),
+            ArtifactCache(root / "cache", downloader=download),
+            source_root=root / "source",
+            platform=PlatformInfo("windows", "x86_64"),
+            report=report,
+        )
+
+    def test_is_installed_only_when_chosen(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "app"
+            self.installer(root).install("core", target)
+            plugin = target / "portable_config" / "scripts" / "plugin.dll"
+            self.assertFalse(plugin.exists())
+            result = self.installer(root).install("core", target, optional=("plugin",))
+            self.assertEqual(plugin.read_bytes(), self.PAYLOAD)
+            self.assertIn("plugin", [c.name for c in result.receipt.components])
+
+    def test_answer_is_saved_and_later_installs_keep_it_and_the_login(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "app"
+            self.installer(root).install(
+                "core",
+                target,
+                optional=("plugin",),
+                answers={"plugin": "https://jf.example"},
+            )
+            options = target / "portable_config" / "script-opts"
+            self.assertEqual(
+                (options / "mpvfin.conf").read_text().strip(),
+                "server=https://jf.example",
+            )
+            (options / "mpvfin-state.json").write_text("login")
+            messages: list[str] = []
+            self.installer(root, messages.append).install(
+                "core", target, optional=("plugin",)
+            )
+            self.assertIn("jf.example", (options / "mpvfin.conf").read_text())
+            self.assertEqual((options / "mpvfin-state.json").read_text(), "login")
+            self.assertFalse(any("Note:" in item for item in messages))
+
+    def test_says_what_is_missing_when_no_answer_was_given(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            messages: list[str] = []
+            self.installer(root, messages.append).install(
+                "core", root / "app", optional=("plugin",)
+            )
+            self.assertTrue(any("has no Server yet" in item for item in messages))
+
+
 class GpuCheckTests(unittest.TestCase):
     REQUIRED = (
         Manifest.load(Path(__file__).parents[1] / "manifest.toml")
@@ -272,7 +365,7 @@ class TransactionalInstallerTests(unittest.TestCase):
             self.assertFalse(target.parent.exists())
             self.assertFalse((root / "cache").exists())
 
-    def test_linux_core_checks_system_mpv_first_and_writes_a_launcher(self) -> None:
+    def test_linux_core_checks_system_mpv_first_and_writes_no_launcher(self) -> None:
         manifest = Manifest.from_data(
             {
                 "schema_version": 1,
@@ -317,9 +410,7 @@ class TransactionalInstallerTests(unittest.TestCase):
                 system_check=lambda _program: ("/usr/bin/mpv", "0.42.0"),
             )
             result = installer.install("core", root / "installed")
-            self.assertIn(
-                "--config-dir=", (root / "installed" / "mpv-enhanced").read_text()
-            )
+            self.assertFalse((root / "installed" / "mpv-enhanced").exists())
             recorded = result.receipt.components[0]
             self.assertEqual(
                 (recorded.kind, recorded.version, recorded.source),

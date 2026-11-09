@@ -3,7 +3,8 @@
 # On Windows shells (Git Bash, MSYS2, Cygwin) mpve.cmd does that instead.
 set -eu
 
-project_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# mpve use symlinks this script into ~/.local/bin, so resolve the link first.
+project_root=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
 release=$project_root
 if [ ! -e "$project_root/.git" ] && [ -f "$project_root/live/current" ]; then
     active=$(cat "$project_root/live/current")

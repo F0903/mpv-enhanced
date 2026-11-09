@@ -44,13 +44,13 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           ./mpve.sh install --profile core --yes --install-dir "$RUNNER_TEMP/mpv-enhanced"
-          "$RUNNER_TEMP/mpv-enhanced/mpv-enhanced" --version
+          "$RUNNER_TEMP/mpv-enhanced/mpv.app/Contents/MacOS/mpv" --config-dir="$RUNNER_TEMP/mpv-enhanced/portable_config" --version
       - name: Install core (Linux, distro mpv)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends mpv
           ./mpve.sh install --profile core --yes --install-dir "$RUNNER_TEMP/mpv-enhanced"
-          "$RUNNER_TEMP/mpv-enhanced/mpv-enhanced" --version
+          mpv --config-dir="$RUNNER_TEMP/mpv-enhanced/portable_config" --version
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

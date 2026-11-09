@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,7 @@ class CommandResult:
 
 
 CommandRunner = Callable[[Sequence[str], Path, Mapping[str, str]], CommandResult]
+VSSCRIPT_DLL = "VSScript.dll"
 
 
 def run_command(
@@ -35,12 +37,14 @@ def run_command(
             cwd=cwd,
             env=dict(environment),
             check=False,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            # On a terminal, uv draws its own progress bars on stderr.
+            stderr=None if sys.stderr.isatty() else subprocess.PIPE,
             text=True,
         )
     except OSError as exc:
         raise RuntimeSetupError(f"cannot run {command[0]!r}: {exc}") from exc
-    return CommandResult(completed.returncode, completed.stdout, completed.stderr)
+    return CommandResult(completed.returncode, completed.stdout, completed.stderr or "")
 
 
 class UvRuntimeBuilder:
@@ -116,7 +120,7 @@ class UvRuntimeBuilder:
                 f"uv completed without creating the runtime interpreter: {interpreter}"
             )
         # No `vapoursynth config` here: on Windows it would register this staging
-        # path in %APPDATA%; the launcher registers the final path on each start.
+        # path in %APPDATA%; register_vsscript records the final path instead.
         result = self._checked(
             (str(interpreter), "-m", "vapoursynth", "get-vsscript"),
             project_directory,
@@ -126,7 +130,31 @@ class UvRuntimeBuilder:
         vsscript_path = result.stdout.strip()
         if not vsscript_path and self.runner is run_command:
             raise RuntimeSetupError("VapourSynth returned an empty VSSCRIPT_PATH")
+        if platform.system == "windows" and self.runner is run_command:
+            # mpv loads a VSScript.dll found beside mpv.exe, so it needs no launcher.
+            shutil.copy2(vsscript_path, staging_root / VSSCRIPT_DLL)
         return vsscript_path
+
+    def register_vsscript(
+        self, runtime: UvRuntime, target_root: Path, platform: PlatformInfo
+    ) -> None:
+        """Record which Python mpv's VSScript library should load."""
+        python = _venv_python(_inside(target_root, runtime.environment), platform)
+        command = (str(python), "-m", "vapoursynth", "config")
+        if platform.system == "windows":
+            # VapourSynth's own writer keys its entry by get_vsscript(), and uv.lock
+            # pins the version whose private helpers this relies on.
+            script = (
+                "import sys, vapoursynth._utils as u; "
+                "u.get_vsscript = lambda: sys.argv[1]; u.vapoursynth_config()"
+            )
+            command = (str(python), "-c", script, str(target_root / VSSCRIPT_DLL))
+        result = self._checked(command, target_root, os.environ, "register VapourSynth")
+        # vapoursynth_config reports failure in its output and still exits 0.
+        if self.runner is run_command and "successfully" not in result.stdout:
+            raise RuntimeSetupError(
+                f"could not register VapourSynth: {result.stdout.strip()}"
+            )
 
     def _find_uv(self, staging_root: Path, platform: PlatformInfo) -> str:
         # `uv run` exports its own path as UV, so this is the pinned bootstrap uv.
@@ -134,62 +162,6 @@ class UvRuntimeBuilder:
         if not uv:
             raise RuntimeSetupError("uv is unavailable; run mpve.cmd or mpve.sh")
         return uv
-
-    def write_launcher(
-        self,
-        *,
-        staging_root: Path,
-        runtime: UvRuntime | None,
-        platform: PlatformInfo,
-    ) -> Path:
-        """Write ``mpv-enhanced(.cmd)``; RIFE lines are added only with a runtime."""
-        if platform.system == "windows":
-            lines = ["@echo off", "setlocal"]
-            if runtime is not None:
-                environment = runtime.environment.replace("/", "\\")
-                python = f'"%~dp0{environment}\\Scripts\\python.exe"'
-                # VapourSynth on Windows always registers the runtime in
-                # %APPDATA%\vapoursynth\vapoursynth.toml, keyed by DLL path.
-                # Re-running config keeps that entry right if the install moves.
-                lines += [
-                    f"{python} -m vapoursynth config >nul || exit /b 1",
-                    (
-                        f'for /f "usebackq delims=" %%I in (`{python} -m vapoursynth '
-                        'get-vsscript`) do set "VSSCRIPT_PATH=%%I"'
-                    ),
-                    "if not defined VSSCRIPT_PATH exit /b 1",
-                ]
-            lines.append('"%~dp0mpv.exe" %*')
-            launcher = staging_root / "mpv-enhanced.cmd"
-            launcher.write_text(
-                "\n".join(lines) + "\n", encoding="utf-8", newline="\r\n"
-            )
-            return launcher
-
-        lines = [
-            "#!/bin/sh",
-            'SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1',
-        ]
-        if runtime is not None:
-            python = f'"$SCRIPT_DIR/{runtime.environment}/bin/python"'
-            lines += [
-                'XDG_CONFIG_HOME="$SCRIPT_DIR/runtime/config"',
-                "export XDG_CONFIG_HOME",
-                f"{python} -m vapoursynth config >/dev/null || exit 1",
-                f"VSSCRIPT_PATH=$({python} -m vapoursynth get-vsscript) || exit 1",
-                "export VSSCRIPT_PATH",
-            ]
-        # Linux uses the distribution mpv; macOS uses the downloaded app bundle.
-        mpv = (
-            '"$SCRIPT_DIR/mpv.app/Contents/MacOS/mpv"'
-            if platform.system == "macos"
-            else "mpv"
-        )
-        lines.append(f'exec {mpv} --config-dir="$SCRIPT_DIR/portable_config" "$@"')
-        launcher = staging_root / "mpv-enhanced"
-        launcher.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-        launcher.chmod(launcher.stat().st_mode | 0o111)
-        return launcher
 
     def retarget(
         self,
@@ -240,7 +212,7 @@ class UvRuntimeBuilder:
         result = self.runner(command, cwd, environment)
         if result.returncode:
             detail = (
-                result.stderr.strip() or result.stdout.strip() or "no diagnostic output"
+                result.stderr.strip() or result.stdout.strip() or "no captured output"
             )
             raise RuntimeSetupError(
                 f"could not {action} (exit {result.returncode}): {detail}"

@@ -65,37 +65,13 @@ class UvRuntimeTests(unittest.TestCase):
             self.assertEqual(len(calls), 3)
             self.assertEqual(calls[2][0][-2:], ["vapoursynth", "get-vsscript"])
 
-            launcher = builder.write_launcher(
-                staging_root=staging,
-                runtime=runtime,
-                platform=PlatformInfo("windows", "x86_64"),
-            )
-            contents = launcher.read_text(encoding="utf-8")
-            self.assertNotIn("XDG_CONFIG_HOME", contents)
-            self.assertIn("-m vapoursynth config", contents)
-            self.assertIn("-m vapoursynth get-vsscript", contents)
-            self.assertIn("VSSCRIPT_PATH", contents)
-            self.assertIn('"%~dp0mpv.exe" %*', contents)
+            final = root / "final"
+            builder.register_vsscript(runtime, final, PlatformInfo("windows", "x86_64"))
+            self.assertEqual(calls[3][0][-1], str(final / "VSScript.dll"))
+            self.assertEqual(calls[3][1], final)
 
-    def test_posix_launchers_point_mpv_at_portable_config(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            staging = Path(temporary)
-            builder = UvRuntimeBuilder()
-            linux = builder.write_launcher(
-                staging_root=staging,
-                runtime=None,
-                platform=PlatformInfo("linux", "x86_64"),
-            ).read_text(encoding="utf-8")
-            self.assertIn(
-                'exec mpv --config-dir="$SCRIPT_DIR/portable_config" "$@"', linux
-            )
-            self.assertNotIn("VSSCRIPT_PATH", linux)
-            mac = builder.write_launcher(
-                staging_root=staging,
-                runtime=None,
-                platform=PlatformInfo("macos", "aarch64"),
-            ).read_text(encoding="utf-8")
-            self.assertIn('exec "$SCRIPT_DIR/mpv.app/Contents/MacOS/mpv" ', mac)
+            builder.register_vsscript(runtime, final, PlatformInfo("linux", "x86_64"))
+            self.assertEqual(calls[4][0][-2:], ["vapoursynth", "config"])
 
     def test_retarget_points_the_venv_at_the_promoted_python(self) -> None:
         runtime = UvRuntime(

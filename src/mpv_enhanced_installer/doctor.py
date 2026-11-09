@@ -13,6 +13,7 @@ from .installer import check_gpu, check_system_program
 from .manifest import Component, Manifest, ResolvedProfile
 from .platforms import PlatformInfo
 from .receipt import RECEIPT_FILENAME, InstallationReceipt
+from .runtime import VSSCRIPT_DLL
 from .version import VERSION
 
 
@@ -82,11 +83,20 @@ def run_doctor(
             checks.append(DoctorCheck("receipt", False, str(exc)))
 
     profile_names = (profile_name,) if profile_name else tuple(manifest.profiles)
+    installed_optional = tuple(
+        item.name
+        for item in (receipt.components if receipt else ())
+        if item.name in manifest.components and manifest.components[item.name].optional
+    )
     selected_components: dict[str, Component] = {}
     resolved_install_profile: ResolvedProfile | None = None
     for name in profile_names:
         try:
-            resolved = manifest.resolve_profile(name, platform)
+            resolved = manifest.resolve_profile(
+                name,
+                platform,
+                optional=installed_optional if name == profile_name else (),
+            )
             if install_root is not None and name == profile_name:
                 resolved_install_profile = resolved
             checks.append(DoctorCheck(f"profile:{name}", True, "supported"))
@@ -197,9 +207,8 @@ def _audit_installed_files(
                 else environment / "bin" / "python"
             )
             checks.append(_required_file("installed:runtime-python", python))
-    if has_runtime or not windows:
-        launcher = "mpv-enhanced.cmd" if windows else "mpv-enhanced"
-        checks.append(_required_file("installed:launcher", install_root / launcher))
+    if windows and has_runtime:
+        checks.append(_required_file("installed:vsscript", install_root / VSSCRIPT_DLL))
     return tuple(checks)
 
 

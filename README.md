@@ -51,6 +51,18 @@ mpve.cmd install --profile core --yes
 ./mpve.sh install --profile core --yes
 ```
 
+Optional components can be added to any profile. The first install offers them,
+`mpve profile` lets you change them, and updates keep what you have.
+
+| Component | Contents                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------- |
+| `mpvfin`  | [Jellyfin cast target](https://github.com/F0903/mpvfin), so you can play to mpv from any Jellyfin app. Windows only. |
+
+Add one to an unattended install with `--with mpvfin`, then set `server=` in
+`portable_config/script-opts/mpvfin.conf`; an interactive install asks for the
+server URL. mpvfin logs in with Quick Connect the first time mpv starts. To have
+mpv wait for a cast, start it with `mpv --idle --force-window`.
+
 NVIDIA's software is proprietary and is downloaded directly from NVIDIA by each
 user. The `rife-tensorrt` profile is governed by the
 [TensorRT SLA](https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html),
@@ -81,28 +93,40 @@ once it has installed successfully, keeping your personal settings. The current
 and previous versions are kept. In a git checkout, use `git pull` instead of
 `mpve update`.
 
-`mpve use` is the only command that changes your PATH. It makes `mpv` and `mpve`
-available in new terminals and they always follow the active version, so you
-only need it once. On Windows it adds the `shims` folder to your user PATH; on
-Linux and macOS it creates them in `~/.local/bin`. Without a version it keeps the
-active one.
+`mpve use` makes `mpv` run the active version, and later updates and rollbacks
+keep it pointed there. Without a version it keeps the active one. It changes:
 
-`--install-dir` installs somewhere else, outside this version management.
+- **Windows:** your user PATH gains the active version's folder, holding the real
+  `mpv.exe`, and this project's folder for `mpve`. Terminals already open keep the
+  version they started with.
+- **Linux:** your system `mpv` stays, and `~/.config/mpv` becomes a symlink to the
+  active version's configuration. `mpve` is linked into `~/.local/bin`. RIFE
+  profiles also add `/etc/ld.so.conf.d/mpv-enhanced.conf`, so `sudo` asks for your
+  password when the version changes.
+- **macOS:** as on Linux, plus `~/.local/bin/mpv` links to the downloaded mpv.
+
+If `~/.config/mpv` or one of those links already exists and isn't from
+mpv-enhanced, `mpve use` stops without changing anything, so move yours away first.
+
+`--install-dir` installs somewhere else, outside this version management; on
+Linux and macOS, start it with `--config-dir` pointing at its `portable_config`.
 `--cache-dir` keeps verified downloads and the interpolation uv cache in a
 reusable location. `--offline` forbids downloads; it works for `core` once its
 downloads are cached, but not for the interpolation profiles.
 
 ## Running
 
-Start the player with `mpv-enhanced.cmd` on Windows or `./mpv-enhanced` on Linux
-and macOS. Both sit next to `mpve` and always start the active version, so
-shortcuts and file associations keep working across updates.
+After `mpve use`, start the player with `mpv`. On Windows and macOS, `mpve status`
+shows the full path, which changes with each version, so shortcuts and file
+associations should be pointed at the new one after an update.
 
-On Windows, the launcher points mpv at the app-local VapourSynth
-(`VSSCRIPT_PATH`) without touching the registry or global environment variables.
-VapourSynth itself records which Python each install uses in
-`%APPDATA%\vapoursynth\vapoursynth.toml` (one entry per install, keyed by path);
-on Linux that file stays inside the install.
+On Windows, `mpv.exe` is started directly with no launcher: a copy of
+`VSScript.dll` beside it loads the app-local VapourSynth, and the installer
+records which Python it uses in `%APPDATA%\vapoursynth\vapoursynth.toml` (one
+entry per install, keyed by path). No launcher is used on Linux or macOS either:
+mpv reads its configuration through the symlink from `mpve use`, and on Linux it
+finds the app-local VapourSynth through the system library path, with the same
+per-install entry in `~/.config/vapoursynth/vapoursynth.toml`.
 
 To move an RTX or RIFE install, reinstall it at the new location: its Python
 environment records its own absolute path. `core` installs can be moved freely.
@@ -118,8 +142,8 @@ Managed files can be replaced during an upgrade. Put personal mpv settings in
 `portable_config/mpv-local.conf` and personal interpolation settings in
 `portable_config/rife_config_local.py`; the installer creates both from their
 tracked `.example` files and preserves them on upgrades. Upgrades also keep
-`portable_config/watch_later` (resume positions) and `portable_config/cache`
-(mpv's caches and compiled TensorRT engines).
+`portable_config/watch_later` (resume positions), `portable_config/cache`
+(mpv's caches and compiled TensorRT engines), and mpvfin's server and saved login.
 
 The RIFE profiles default to the fast `4.25.lite` model and also install the
 full `4.25` model, the release upstream says significantly improved anime

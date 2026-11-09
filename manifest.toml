@@ -104,6 +104,22 @@ check_args = ["--vf=help"]
 check_contains = "vapoursynth"
 os.linux.arch = ["x86_64"]
 
+# Optional components can be added to any profile, from the menu or with --with NAME.
+# `setup` asks for one value and writes `line` to `file`, unless `file` already exists.
+[components.mpvfin]
+kind = "download"
+optional = true
+description = "Jellyfin cast target: play to mpv from any Jellyfin app"
+version = "0.1.0"
+url = "https://github.com/F0903/mpvfin/releases/download/v{version}/mpvfin.dll"
+sha256 = "19f295592cb3ff988534c55d2bf05a46d1009966e474a448c3e36c963606b0ab"
+destination = "portable_config/scripts/mpvfin.dll"
+setup.question = "Jellyfin server URL"
+setup.file = "portable_config/script-opts/mpvfin.conf"
+setup.line = "server={answer}\n"
+setup.matches = 'https?://\S+'
+os.windows.arch = ["x86_64"]
+
 [components.portable-config]
 kind = "local"
 path = "portable_config"
