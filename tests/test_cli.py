@@ -10,6 +10,7 @@ from unittest.mock import patch
 from mpv_enhanced_installer.cli import (
     NVIDIA_SOFTWARE_LICENSE_URL,
     NVIDIA_TENSORRT_SLA_URL,
+    _choose_methods,
     _choose_optional,
     _setup_answers,
     main,
@@ -69,7 +70,7 @@ class OptionalScreenTests(unittest.TestCase):
         self.assertEqual(chosen, ())
         self.assertIn("  1. [ ] first — The first one", output)
         self.assertIn("  2. [ ] second — The second one", output)
-        self.assertIn("  -  linux-only — unavailable on windows-x86_64", output)
+        self.assertIn("  -  linux-only — unavailable: not on windows-x86_64", output)
 
     def test_several_can_be_picked_and_keep_manifest_order(self) -> None:
         self.assertEqual(self.choose("2, 1\n")[0], ("first", "second"))
@@ -78,6 +79,99 @@ class OptionalScreenTests(unittest.TestCase):
         for typed in ("3\n", "0\n", "first\n"):
             with self.assertRaisesRegex(InstallerError, "invalid component selection"):
                 self.choose(typed)
+
+
+class MethodsScreenTests(unittest.TestCase):
+    @staticmethod
+    def method(name: str, *, preselect: bool = True) -> dict[str, object]:
+        return {
+            "description": f"About {name}",
+            "components": [],
+            "preselect": preselect,
+            "choices": [{"id": name, "title": name, "rank": 1, "settings": {}}],
+        }
+
+    def choose(
+        self,
+        typed: str,
+        *,
+        unavailable: dict[str, str] | None = None,
+        installed: tuple[str, ...] | None = None,
+        command: str = "install",
+        flag: list[str] | None = None,
+        terminal: bool = True,
+    ) -> tuple[tuple[str, ...], str]:
+        manifest = Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {"local": {"kind": "local", "path": "files"}},
+                "profiles": {"core": {"components": ["local"]}},
+                "methods": {
+                    "rtx": self.method("rtx"),
+                    "rife": self.method("rife"),
+                    "rife-tensorrt": self.method("rife-tensorrt", preselect=False),
+                },
+            },
+        )
+        reasons = unavailable or {}
+        output = StringIO()
+        layout = SimpleNamespace(
+            active=lambda: "1.0.0" if installed is not None else None,
+            methods=lambda _version: installed or (),
+        )
+        with patch(
+            "mpv_enhanced_installer.cli._unavailable_reason",
+            side_effect=lambda _m, _n, _p, methods=(): reasons.get(methods[0]),
+        ):
+            chosen = _choose_methods(
+                SimpleNamespace(
+                    methods=flag, install_dir=None, yes=False, command=command
+                ),
+                manifest,
+                PlatformInfo("windows", "x86_64"),
+                layout,
+                "core",
+                (TtyStringIO if terminal else StringIO)(typed),
+                output,
+            )
+        return chosen, output.getvalue()
+
+    def test_first_runnable_method_starts_ticked(self) -> None:
+        chosen, output = self.choose("\n", unavailable={"rtx": "needs RTX 40"})
+        self.assertEqual(chosen, ("rife",))
+        self.assertIn("Choose interpolation methods:", output)
+        self.assertIn("  -  rtx — unavailable: needs RTX 40", output)
+        self.assertIn("  1. [x] rife — About rife", output)
+        self.assertIn("  2. [ ] rife-tensorrt — About rife-tensorrt", output)
+
+    def test_tensorrt_is_never_preticked(self) -> None:
+        chosen, _ = self.choose("\n", unavailable={"rtx": "no", "rife": "no"})
+        self.assertEqual(chosen, ())
+
+    def test_numbers_toggle_methods(self) -> None:
+        self.assertEqual(self.choose("1\n")[0], ())
+        self.assertEqual(self.choose("2\n")[0], ("rtx", "rife"))
+
+    def test_unattended_fresh_install_gets_no_methods(self) -> None:
+        chosen, output = self.choose("", terminal=False)
+        self.assertEqual((chosen, output), ((), ""))
+
+    def test_existing_install_keeps_its_methods_without_asking(self) -> None:
+        chosen, output = self.choose("", installed=("rife",))
+        self.assertEqual((chosen, output), (("rife",), ""))
+
+    def test_profile_command_shows_screen_with_installed_marked(self) -> None:
+        chosen, output = self.choose("\n", installed=("rife",), command="profile")
+        self.assertEqual(chosen, ("rife",))
+        self.assertIn("  1. [ ] rtx — ", output)
+        self.assertIn("  2. [x] rife — ", output)
+
+    def test_method_flag_replaces_selection(self) -> None:
+        chosen, output = self.choose("", installed=("rife",), flag=["rtx"])
+        self.assertEqual((chosen, output), (("rtx",), ""))
+
+    def test_a_method_dropped_from_the_manifest_is_not_kept(self) -> None:
+        self.assertEqual(self.choose("", installed=("gone", "rife"))[0], ("rife",))
 
 
 class SetupScreenTests(unittest.TestCase):
@@ -161,7 +255,7 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(code, 0, errors.getvalue())
         self.assertIn("core\t", output.getvalue())
-        self.assertIn("rife-tensorrt\t", output.getvalue())
+        self.assertIn("rife-tensorrt\tmethod\t", output.getvalue())
 
     def test_empty_argv_defaults_to_interactive_install_command(self) -> None:
         output = StringIO()
@@ -304,7 +398,7 @@ class CliTests(unittest.TestCase):
         errors = StringIO()
         with TemporaryDirectory() as temporary:
             args = self._install_args(
-                "rtx-high", Path(temporary) / "target", Path(temporary) / "cache"
+                "rtx", Path(temporary) / "target", Path(temporary) / "cache"
             )
             with (
                 patch(
@@ -319,11 +413,11 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("Type 'accept'", output.getvalue())
         artifact_cache.assert_not_called()
 
-    def test_rtx_profile_requires_its_own_licence(self) -> None:
+    def test_rtx_method_requires_its_own_licence(self) -> None:
         errors = StringIO()
         with TemporaryDirectory() as temporary:
             args = self._install_args(
-                "rtx-medium", Path(temporary) / "target", Path(temporary) / "cache"
+                "rtx", Path(temporary) / "target", Path(temporary) / "cache"
             )
             with patch("mpv_enhanced_installer.cli.check_gpu"):
                 code = main(args, stdin=StringIO(), stdout=StringIO(), stderr=errors)
@@ -347,7 +441,7 @@ class CliTests(unittest.TestCase):
                 patch("mpv_enhanced_installer.cli.Installer") as installer,
             ):
                 installer.return_value.install.return_value = self._install_result(
-                    target, "rtx-high"
+                    target, "core"
                 )
                 code = main(
                     [*args, "--accept-nvidia-license"],
@@ -356,58 +450,55 @@ class CliTests(unittest.TestCase):
                     stderr=errors,
                 )
         self.assertEqual(code, 0, errors.getvalue())
-        self.assertIn("rtx-high (default)", output.getvalue())
-        self.assertEqual(installer.return_value.install.call_args.args[0], "rtx-high")
+        self.assertIn("core (default)", output.getvalue())
+        call = installer.return_value.install.call_args
+        self.assertEqual(call.args[0], "core")
+        self.assertEqual(call.kwargs["methods"], ("rtx",))
 
-    def test_menu_marks_unavailable_profiles_and_cannot_select_them(self) -> None:
+    def test_screen_marks_unavailable_methods_and_ticks_the_first_it_can_run(
+        self,
+    ) -> None:
         def only_older_nvidia(gpu: object) -> str:
             if "RTX 40" in gpu.requirement:  # type: ignore[attr-defined]
                 raise InstallerError("needs a newer GPU")
             return "NVIDIA GeForce RTX 3080"
 
-        host = PlatformInfo("windows", "x86_64")
-        for answer in ("1\n", "\n"):
-            output = StringIO()
-            errors = StringIO()
-            with TemporaryDirectory() as temporary:
-                target = Path(temporary) / "target"
-                args = [
-                    item
-                    for item in self._install_args("core", target, Path(temporary))
-                    if item not in ("--profile", "core")
-                ]
-                with (
-                    self.subTest(answer=answer),
-                    patch(
-                        "mpv_enhanced_installer.cli.check_gpu",
-                        side_effect=only_older_nvidia,
-                    ),
-                    patch(
-                        "mpv_enhanced_installer.cli.PlatformInfo.detect",
-                        return_value=host,
-                    ),
-                    patch("mpv_enhanced_installer.cli.ArtifactCache"),
-                    patch("mpv_enhanced_installer.cli.Installer") as installer,
-                ):
-                    installer.return_value.install.return_value = self._install_result(
-                        target, "rife-tensorrt"
-                    )
-                    code = main(
-                        [*args, "--accept-nvidia-license"],
-                        stdin=TtyStringIO(answer),
-                        stdout=output,
-                        stderr=errors,
-                    )
-                    self.assertEqual(code, 0, errors.getvalue())
-                    self.assertIn(
-                        "-  rtx-high — unavailable: needs a newer GPU",
-                        output.getvalue(),
-                    )
-                    self.assertIn("1. rife-tensorrt (default)", output.getvalue())
-                    self.assertEqual(
-                        installer.return_value.install.call_args.args[0],
-                        "rife-tensorrt",
-                    )
+        output = StringIO()
+        errors = StringIO()
+        with TemporaryDirectory() as temporary:
+            target = Path(temporary) / "target"
+            args = [
+                item
+                for item in self._install_args("core", target, Path(temporary))
+                if item not in ("--profile", "core")
+            ]
+            with (
+                patch(
+                    "mpv_enhanced_installer.cli.check_gpu",
+                    side_effect=only_older_nvidia,
+                ),
+                patch(
+                    "mpv_enhanced_installer.cli.PlatformInfo.detect",
+                    return_value=PlatformInfo("windows", "x86_64"),
+                ),
+                patch("mpv_enhanced_installer.cli.ArtifactCache"),
+                patch("mpv_enhanced_installer.cli.Installer") as installer,
+            ):
+                installer.return_value.install.return_value = self._install_result(
+                    target, "core"
+                )
+                code = main(
+                    args,
+                    stdin=TtyStringIO("\n\n\n"),
+                    stdout=output,
+                    stderr=errors,
+                )
+        self.assertEqual(code, 0, errors.getvalue())
+        self.assertIn("-  rtx — unavailable: needs a newer GPU", output.getvalue())
+        self.assertIn("1. [x] rife — ", output.getvalue())
+        self.assertEqual(
+            installer.return_value.install.call_args.kwargs["methods"], ("rife",)
+        )
 
     def test_install_inside_wsl_points_at_install_cmd(self) -> None:
         errors = StringIO()
@@ -433,7 +524,9 @@ class CliTests(unittest.TestCase):
         self.assertIn("mpve.cmd", errors.getvalue())
 
     @staticmethod
-    def _install_args(profile: str, target: Path, cache: Path) -> list[str]:
+    def _install_args(selection: str, target: Path, cache: Path) -> list[str]:
+        """Install arguments for ``core`` or for ``core`` with this method."""
+        method = [] if selection == "core" else ["--method", selection]
         return [
             "install",
             "--manifest",
@@ -441,7 +534,8 @@ class CliTests(unittest.TestCase):
             "--platform",
             "windows-x86_64",
             "--profile",
-            profile,
+            "core",
+            *method,
             "--install-dir",
             str(target),
             "--cache-dir",

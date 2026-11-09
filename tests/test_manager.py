@@ -436,7 +436,7 @@ class ManagedCliTests(ManagerTestCase):
         self,
     ) -> None:
         options, output = self.optional_chosen(
-            "profile", "core", stdin=TerminalInput("1\n")
+            "profile", "core", stdin=TerminalInput("\n1\n")
         )
         self.assertEqual(options["optional"], ())
         self.assertIn("Choose optional components", output)
@@ -450,7 +450,7 @@ class ManagedCliTests(ManagerTestCase):
         options, output = self.optional_chosen(
             "profile",
             "core",
-            stdin=TerminalInput("\njellyfin.local\nhttp://jellyfin.local:8096\n"),
+            stdin=TerminalInput("\n\njellyfin.local\nhttp://jellyfin.local:8096\n"),
         )
         self.assertEqual(options["answers"], {"mpvfin": "http://jellyfin.local:8096"})
         self.assertIn("doesn't look like", output)

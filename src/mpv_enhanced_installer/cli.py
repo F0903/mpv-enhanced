@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
@@ -31,6 +32,13 @@ NVIDIA_LICENSES = {
     "tensorrt": ("NVIDIA TensorRT SLA", NVIDIA_TENSORRT_SLA_URL),
     "rtx": ("NVIDIA Software License Agreement", NVIDIA_SOFTWARE_LICENSE_URL),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class TickRow:
+    name: str
+    description: str
+    unavailable: str | None = None
 
 
 def _manifest_arguments(
@@ -80,6 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
             "--install-dir",
             type=Path,
             help="install here instead of under live/, outside version management",
+        )
+        install.add_argument(
+            "--method",
+            dest="methods",
+            action="append",
+            metavar="METHOD",
+            help="add an interpolation method (see list-profiles); can be repeated",
         )
         install.add_argument(
             "--with",
@@ -196,9 +211,12 @@ def main(
                     file=stderr,
                 )
             profile_name = _install_profile(args, manifest, platform, stdin, stdout)
+            methods = _choose_methods(
+                args, manifest, platform, layout, profile_name, stdin, stdout
+            )
             # Before the licence prompt: no point accepting terms for a GPU that can't run it.
             for component in manifest.resolve_profile(
-                profile_name, platform
+                profile_name, platform, methods=methods
             ).components:
                 if component.gpu is not None:
                     check_gpu(component.gpu)
@@ -211,6 +229,7 @@ def main(
                 platform,
                 stdin,
                 stdout,
+                methods,
             )
             installer = Installer(
                 manifest,
@@ -227,6 +246,7 @@ def main(
                 args.install_dir or layout.app(VERSION),
                 offline=args.offline,
                 carry_from=layout.carry_source(VERSION) if managed else None,
+                methods=methods,
                 optional=optional,
                 answers=answers,
             )
@@ -324,10 +344,11 @@ def _unavailable_reason(
     manifest: Manifest,
     name: str,
     platform: PlatformInfo,
+    methods: tuple[str, ...] = (),
 ) -> str | None:
-    """Explain why a profile can't be installed on this machine, if it can't."""
+    """Explain why a profile or method can't be installed on this machine, if so."""
     try:
-        profile = manifest.resolve_profile(name, platform)
+        profile = manifest.resolve_profile(name, platform, methods=methods)
         # Hardware and programs can only be probed on the real host platform.
         if platform == PlatformInfo.detect():
             for component in profile.components:
@@ -349,6 +370,8 @@ def _list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) -
         else:
             status = f"unavailable: {reason}"
         print(f"{name}\t{status}\t{profile.description}", file=output)
+    for method in manifest.available_methods(platform):
+        print(f"{method.name}\tmethod\t{method.description}", file=output)
     for component in manifest.optional_components(platform):
         print(f"{component.name}\toptional\t{component.description}", file=output)
     return 0
@@ -369,35 +392,93 @@ def _choose_optional(
     installed = layout.components(active) if active else ()
     names = [item.name for item in manifest.optional_components(platform)]
     chosen = {name for name in names if name in installed}
-    ask = stdin.isatty() and not args.yes and (not active or args.command == "profile")
-    if names and ask:
-        print("Choose optional components:", file=stdout)
-        for component in manifest.components.values():
-            if not component.optional:
-                continue
-            if component.name not in names:
-                print(
-                    f"  -  {component.name} — unavailable on {platform.key}",
-                    file=stdout,
-                )
-                continue
-            mark = "x" if component.name in chosen else " "
-            print(
-                f"  {names.index(component.name) + 1}. [{mark}] {component.name} — "
-                f"{component.description}",
-                file=stdout,
+    if _should_ask(args, active, stdin):
+        rows = [
+            TickRow(
+                item.name,
+                item.description,
+                None if item.name in names else f"not on {platform.key}",
             )
+            for item in manifest.components.values()
+            if item.optional
+        ]
+        chosen = _tick_screen(
+            "Choose optional components:", rows, chosen, stdin, stdout
+        )
+    return tuple(name for name in names if name in chosen)
+
+
+def _choose_methods(
+    args: argparse.Namespace,
+    manifest: Manifest,
+    platform: PlatformInfo,
+    layout: Layout,
+    profile_name: str,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> tuple[str, ...]:
+    """Pick interpolation methods; updates keep what the active version has."""
+    if args.methods is not None:
+        return tuple(args.methods)
+    active = None if args.install_dir else layout.active()
+    installed = layout.methods(active) if active else ()
+    if not _should_ask(args, active, stdin):
+        return tuple(name for name in manifest.methods if name in installed)
+    rows = [
+        TickRow(
+            item.name,
+            item.description,
+            _unavailable_reason(manifest, profile_name, platform, methods=(item.name,)),
+        )
+        for item in manifest.methods.values()
+    ]
+    runnable = [row.name for row in rows if row.unavailable is None]
+    chosen = {name for name in runnable if name in installed}
+    if not active:
+        first = next((n for n in runnable if manifest.methods[n].preselect), None)
+        chosen = {first} if first else set()
+    chosen = _tick_screen("Choose interpolation methods:", rows, chosen, stdin, stdout)
+    return tuple(name for name in manifest.methods if name in chosen)
+
+
+def _should_ask(args: argparse.Namespace, active: str | None, stdin: TextIO) -> bool:
+    """Screens appear on a first install and for ``mpve profile``, never on updates."""
+    return stdin.isatty() and not args.yes and (not active or args.command == "profile")
+
+
+def _tick_screen(
+    title: str,
+    rows: Sequence[TickRow],
+    chosen: set[str],
+    stdin: TextIO,
+    stdout: TextIO,
+) -> set[str]:
+    """Show numbered tick boxes; typed numbers toggle, Enter continues."""
+    names = [row.name for row in rows if row.unavailable is None]
+    if not names:
+        return chosen
+    print(title, file=stdout)
+    for row in rows:
+        if row.unavailable is not None:
+            print(f"  -  {row.name} — unavailable: {row.unavailable}", file=stdout)
+            continue
+        mark = "x" if row.name in chosen else " "
         print(
-            "Numbers to toggle, separated by spaces (Enter to continue): ",
-            end="",
-            flush=True,
+            f"  {names.index(row.name) + 1}. [{mark}] {row.name} — {row.description}",
             file=stdout,
         )
-        for number in stdin.readline().replace(",", " ").split():
-            if not number.isdecimal() or not 1 <= int(number) <= len(names):
-                raise InstallerError(f"invalid component selection: {number!r}")
-            chosen ^= {names[int(number) - 1]}
-    return tuple(name for name in names if name in chosen)
+    print(
+        "Numbers to toggle, separated by spaces (Enter to continue): ",
+        end="",
+        flush=True,
+        file=stdout,
+    )
+    selected = set(chosen)
+    for number in stdin.readline().replace(",", " ").split():
+        if not number.isdecimal() or not 1 <= int(number) <= len(names):
+            raise InstallerError(f"invalid component selection: {number!r}")
+        selected ^= {names[int(number) - 1]}
+    return selected
 
 
 def _setup_answers(
@@ -502,9 +583,10 @@ def _require_nvidia_license_acceptance(
     platform: PlatformInfo,
     stdin: TextIO,
     stdout: TextIO,
+    methods: tuple[str, ...] = (),
 ) -> None:
     """Require distinct, explicit consent before installing NVIDIA's packages."""
-    profile = manifest.resolve_profile(profile_name, platform)
+    profile = manifest.resolve_profile(profile_name, platform, methods=methods)
     licenses = [
         NVIDIA_LICENSES[extra] for extra in profile.extras if extra in NVIDIA_LICENSES
     ]
@@ -515,12 +597,12 @@ def _require_nvidia_license_acceptance(
     if args.yes or not stdin.isatty():
         urls = ", ".join(url for _, url in licenses)
         raise InstallerError(
-            f"profile {profile_name!r} requires acceptance of the {names} at "
+            f"this install requires acceptance of the {names} at "
             f"{urls}; review it and re-run with --accept-nvidia-license "
             "(--yes does not accept third-party licenses)"
         )
 
-    print("This profile installs proprietary NVIDIA packages.", file=stdout)
+    print("The chosen methods install proprietary NVIDIA packages.", file=stdout)
     for name, url in licenses:
         print(f"Review the {name}: {url}", file=stdout)
     print(
