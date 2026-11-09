@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 import urllib.error
 import urllib.request
 import uuid
@@ -15,6 +16,7 @@ from .manifest import Artifact
 from .version import VERSION
 
 Downloader = Callable[[str, Path], None]
+BAR_WIDTH = 24
 
 
 def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
@@ -25,21 +27,42 @@ def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+def progress_line(name: str, done: int, total: int | None) -> str:
+    """One line of download progress, short enough for an 80-column terminal."""
+    name = name[:28].ljust(28)
+    if not total:
+        return f"{name}  {done / 1e6:.1f} MB"
+    filled = BAR_WIDTH * done // total
+    bar = "#" * filled + "-" * (BAR_WIDTH - filled)
+    return f"{name}  [{bar}] {done * 100 // total:3d}%  {total / 1e6:.1f} MB"
+
+
 def download_url(url: str, destination: Path) -> None:
     """Download *url* to *destination* without interpreting its contents."""
     request = urllib.request.Request(
         url,
         headers={"User-Agent": f"mpv-enhanced-installer/{VERSION}"},
     )
+    name = url.rsplit("/", 1)[-1]
+    show_progress = sys.stderr.isatty()
+    done = 0
     try:
         with (
             urllib.request.urlopen(request, timeout=60) as response,
             destination.open("xb") as output,
         ):
+            total = response.length
             while chunk := response.read(1024 * 1024):
                 output.write(chunk)
+                done += len(chunk)
+                if show_progress:
+                    line = progress_line(name, done, total)
+                    print(f"\r{line}", end="", file=sys.stderr, flush=True)
     except (OSError, urllib.error.URLError) as exc:
         raise DownloadError(f"failed to download {url}: {exc}") from exc
+    finally:
+        if show_progress and done:
+            print(file=sys.stderr)
 
 
 class ArtifactCache:

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mpv_enhanced_installer.downloads import ArtifactCache
+from mpv_enhanced_installer.downloads import ArtifactCache, progress_line
 from mpv_enhanced_installer.errors import HashMismatchError, OfflineCacheMissError
 from mpv_enhanced_installer.manifest import Artifact
 
@@ -15,6 +15,21 @@ def artifact_for(content: bytes) -> Artifact:
         archive="none",
         destination="payload.bin",
     )
+
+
+class ProgressLineTests(unittest.TestCase):
+    def test_shows_a_bar_when_the_size_is_known(self) -> None:
+        line = progress_line("mpv.zip", 50_000_000, 100_000_000)
+        self.assertIn(f"[{'#' * 12}{'-' * 12}]  50%", line)
+        self.assertTrue(line.endswith("100.0 MB"))
+
+    def test_finished_download_fills_the_bar_and_stays_within_80_columns(self) -> None:
+        line = progress_line("a-very-long-file-name-" * 4, 2_000_000_000, 2_000_000_000)
+        self.assertIn(f"[{'#' * 24}] 100%", line)
+        self.assertLessEqual(len(line), 80)
+
+    def test_shows_only_the_amount_when_the_size_is_unknown(self) -> None:
+        self.assertTrue(progress_line("mpv.zip", 1_500_000, None).endswith("1.5 MB"))
 
 
 class ArtifactCacheTests(unittest.TestCase):
