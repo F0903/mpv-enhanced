@@ -13,7 +13,10 @@ requires-python = ">=3.12,<3.13"
 dependencies = []
 
 [dependency-groups]
-dev = ["ruff==0.16.3"]
+dev = [
+    "lupa==2.8",
+    "ruff==0.16.3",
+]
 
 [project.scripts]
 mpv-enhanced = "mpv_enhanced_installer.cli:main"
