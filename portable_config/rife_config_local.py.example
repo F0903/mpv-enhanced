@@ -2,10 +2,8 @@
 
 Copy this file to ``rife_config_local.py`` and uncomment only the settings you
 want to override. Names defined here replace the defaults from rife_config.py.
+The interpolation method and multiplier are set in the MPV Enhanced menu.
 """
 
-# rtx_mode = "HIGH"
-# rife_model = "4.25"  # The full model; slower than the default 4.25.lite.
 # gpu_index = 0
-# tensorrt = False
 # tensorrt_optimization = 3

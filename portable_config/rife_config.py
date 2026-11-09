@@ -6,45 +6,20 @@ Modify these values to customize the behavior according to your needs.
 """
 
 import vapoursynth as vs
-from vs_script.target_fps_mode import TargetFpsMode
 from vs_script.expensive_clip_mode import ExpensiveClipMode
 
 
-# =============================================================================
-# Interpolator
-# =============================================================================
-
-# "rtx" (RTX Video Frame Generation) or "rife". The installer sets this for the
-# installed profile in the generated rife_profile.py.
-interpolator = "rife"
-
-# RTX Video Frame Generation quality: "LOW", "MEDIUM" or "HIGH".
-rtx_mode = "HIGH"
-
+# The method, model, multiplier and FPS cutoff are chosen in the MPV Enhanced menu.
 
 # =============================================================================
 # RIFE Model Settings
 # =============================================================================
-
-# rife_model is set by the installer in the generated rife_profile.py. The RIFE
-# profiles also install "4.25", which can be selected in rife_config_local.py.
 
 # Interpolation scale
 scale = 1
 
 # Produces better results at a decently heavy cost. NOTE: NOT SUPPORTED BY ALL MODELS
 ensemble = False
-
-
-# =============================================================================
-# Target FPS Settings
-# =============================================================================
-
-# Target FPS mode. Can be TargetFpsMode.fixed_fps(*target_fps*) or TargetFpsMode.fixed_multiplier(*multiplier*)
-target_mode = TargetFpsMode.fixed_multiplier(2)
-
-# Disable when source media is above threshold
-disable_fps_threshold = 60
 
 
 # =============================================================================
@@ -86,9 +61,8 @@ gpu_index = 0
 # RGBH is faster, RGBS is more accurate
 gpu_format = vs.RGBH
 
-# Uses Nvidia TensorRT framework which is faster.
-# It also takes a million years to build an RT engine for each resolution and config, but it is much faster than regular.
-tensorrt = False
+# TensorRT is chosen per method in the menu. It builds an engine for each
+# resolution and config, which can take minutes the first time.
 
 # 0 is min - 5 is max. This will increase the time it takes to build the RT engine
 tensorrt_optimization = 3

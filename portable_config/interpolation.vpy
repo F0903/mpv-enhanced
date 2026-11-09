@@ -10,6 +10,9 @@ if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
 import rife_config as config
+from pathlib import Path
+
+from vs_script.choice import choice_settings, parse_user_data
 from vs_script.expensive_clip_mode import ExpensiveClipMode
 
 
@@ -17,6 +20,7 @@ from vs_script.expensive_clip_mode import ExpensiveClipMode
 # We can't declare these without overwriting them, so we'll use type ignore comments
 # video_in: vs.VideoNode (provided by MPV)
 # container_fps: float (provided by MPV)
+# user_data: str (provided by MPV) <choice-id>/<multiplier>, from the MPV Enhanced menu
 
 core = vs.core
 
@@ -44,7 +48,7 @@ def mark_scene_changes(clip: vs.VideoNode, threshold: float) -> vs.VideoNode:
     return clip.std.CopyFrameProps(marked, "_SceneChangeNext")
 
 
-def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
+def interpolate(clip: vs.VideoNode, settings, multiplier: Fraction) -> vs.VideoNode:
     os.makedirs(os.path.join(script_dir, "cache", "tensorrt"), exist_ok=True)
     original_size = (clip.width, clip.height)
     original_format = clip.format
@@ -76,9 +80,7 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
         f"Container FPS fraction: {container_fps_frac.numerator}/{container_fps_frac.denominator}={float(container_fps_frac)}"
     )
 
-    target_fps_frac = config.target_mode.get_fps_fraction(
-        container_fps_frac
-    ).limit_denominator(100)
+    target_fps_frac = multiplier
     [target_num, target_den] = target_fps_frac.as_integer_ratio()
     print_log(
         f"Target FPS fraction: {target_fps_frac.numerator}/{target_fps_frac.denominator}={float(target_fps_frac)}"
@@ -92,7 +94,7 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
     )
 
     print_log(
-        f"Using settings:\nscale: {config.scale},ensemble={config.ensemble},gpu_index={config.gpu_index},gpu_tensorrt={config.tensorrt}"
+        f"Using settings:\nscale: {config.scale},ensemble={config.ensemble},gpu_index={config.gpu_index},gpu_tensorrt={settings['tensorrt']}"
     )
 
     # Change format for RIFE
@@ -107,7 +109,7 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
         clip = mark_scene_changes(clip, config.sc_threshold)
     clip = rife(
         clip=clip,
-        model=config.rife_model,
+        model=settings["rife_model"],
         factor_num=target_num,
         factor_den=target_den,
         device_index=config.gpu_index,
@@ -115,7 +117,7 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
         ensemble=config.ensemble,
         sc=config.sc,
         sc_threshold=None,
-        trt=config.tensorrt,
+        trt=settings["tensorrt"],
         trt_optimization_level=config.tensorrt_optimization,
         trt_static_shape=config.tensorrt_static_shape,
         trt_min_shape=config.tensorrt_min_shape,
@@ -142,26 +144,23 @@ def interpolate(clip: vs.VideoNode) -> vs.VideoNode:
     )
     return clip
 
-# Main interpolation logic
-if container_fps < config.disable_fps_threshold:  # type: ignore[name-defined]
-    print_log(
-        f"Containers FPS '{container_fps}' is below {config.disable_fps_threshold}. Interpolating..."  # type: ignore[name-defined]
+# Main interpolation logic. The menu's script decides whether and how to
+# interpolate each file; this only applies what it was told.
+clip = video_in  # type: ignore[name-defined]
+try:
+    choice_id, multiplier = parse_user_data(user_data)  # type: ignore[name-defined]
+    settings = choice_settings(
+        Path(script_dir) / "script-opts" / "mpv_enhanced_install.json", choice_id
     )
-
-    clip = video_in  # type: ignore[name-defined]
-    if config.interpolator == "rtx":
+except (ValueError, KeyError, OSError) as error:
+    print_log(f"Not interpolating: {error!r}")
+else:
+    if settings["interpolator"] == "rtx":
         from vs_script.rtx import interpolate as interpolate_rtx
 
         source_fps = Fraction(container_fps).limit_denominator(1001)  # type: ignore[name-defined]
-        multiplier = config.target_mode.get_fps_fraction(source_fps).limit_denominator(100)
-        clip = interpolate_rtx(clip, multiplier, source_fps * multiplier, config.rtx_mode)
+        clip = interpolate_rtx(clip, multiplier, source_fps * multiplier, settings["rtx_mode"])
     else:
-        clip = interpolate(clip)
-    print_log(f"Final clip: {clip}")
-    clip.set_output()
-
-else:
-    print_log("Video is above FPS threshold. Ignoring...")
-
-    clip = video_in  # type: ignore[name-defined]
-    clip.set_output()
+        clip = interpolate(clip, settings, multiplier)
+print_log(f"Final clip: {clip}")
+clip.set_output()
