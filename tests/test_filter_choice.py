@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "portable_config"))
 
-from vs_script.choice import choice_settings, parse_user_data  # noqa: E402
+from vs_script.choice import choice_settings, parse_user_data
 
 
 class ParseUserDataTests(unittest.TestCase):
@@ -31,7 +31,11 @@ class ChoiceSettingsTests(unittest.TestCase):
         self.path = Path(temporary.name) / "info.json"
         self.path.write_text(
             json.dumps(
-                {"choices": [{"id": "a", "title": "A", "settings": {"rtx_mode": "HIGH"}}]}
+                {
+                    "choices": [
+                        {"id": "a", "title": "A", "settings": {"rtx_mode": "HIGH"}}
+                    ]
+                }
             ),
             encoding="utf-8",
         )
