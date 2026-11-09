@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -19,6 +19,7 @@ from .installer import Installer, check_gpu, check_system_program
 from .manager import Layout, is_in_use, rollback, update, use
 from .manifest import Manifest
 from .platforms import PlatformInfo, running_in_wsl
+from .settings import SETTINGS, reconcile_targets, set_enabled
 from .version import VERSION
 
 NVIDIA_TENSORRT_SLA_URL = (
@@ -260,6 +261,9 @@ def main(
                 # Older versions are the rollback path, so this copy isn't needed.
                 if result.previous_dir is not None:
                     shutil.rmtree(result.previous_dir, ignore_errors=True)
+                _finish_interpolation(
+                    args, result.install_dir, manifest, methods, stdin, stdout
+                )
                 print(
                     f"Start mpv-enhanced with: {layout.player(VERSION, platform)}",
                     file=stdout,
@@ -272,6 +276,9 @@ def main(
                     f"Previous installation retained at {result.previous_dir}",
                     file=stdout,
                 )
+            _finish_interpolation(
+                args, result.install_dir, manifest, methods, stdin, stdout
+            )
             start = next(
                 (
                     path
@@ -479,6 +486,39 @@ def _tick_screen(
             raise InstallerError(f"invalid component selection: {number!r}")
         selected ^= {names[int(number) - 1]}
     return selected
+
+
+def _finish_interpolation(
+    args: argparse.Namespace,
+    app: Path,
+    manifest: Manifest,
+    methods: tuple[str, ...],
+    stdin: TextIO,
+    stdout: TextIO,
+    offer_benchmark: Callable[..., bool] = lambda *_: False,
+) -> None:
+    """Settle the player's settings once the chosen methods are installed."""
+    if not methods:
+        return
+    reconcile_targets(app, [item.id for item in manifest.method_choices(methods)])
+    first_install = not (app / SETTINGS).exists()
+    interactive = stdin.isatty() and not args.yes
+    accepted = interactive and (first_install or args.command == "profile")
+    accepted = accepted and offer_benchmark(app, manifest, methods, stdin, stdout)
+    if not first_install:
+        return
+    enabled = False
+    if interactive:
+        print(
+            "Start with interpolation on or off? "
+            f"[{'ON/off' if accepted else 'on/OFF'}]: ",
+            end="",
+            flush=True,
+            file=stdout,
+        )
+        answer = stdin.readline().strip().lower()
+        enabled = answer == "on" if answer in ("on", "off") else accepted
+    set_enabled(app, enabled)
 
 
 def _setup_answers(

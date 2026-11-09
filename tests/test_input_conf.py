@@ -56,7 +56,9 @@ class MainScriptTests(unittest.TestCase):
     def test_filter_changes_are_asynchronous(self) -> None:
         # A synchronous command runs on the script's own thread, Python then
         # initialises there, and mpv crashes at exit once that thread is gone.
-        script = (INPUT_CONF.parent / "scripts/mpv_enhanced/main.lua").read_text("utf-8")
+        script = (INPUT_CONF.parent / "scripts/mpv_enhanced/main.lua").read_text(
+            "utf-8"
+        )
         self.assertNotRegex(script, r'commandv\(\s*"vf"')
         self.assertIn("command_native_async", script)
 
