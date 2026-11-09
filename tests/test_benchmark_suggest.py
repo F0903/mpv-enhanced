@@ -52,19 +52,33 @@ class SuggestTargetsTests(unittest.TestCase):
             [item["method"] for item in suggest_targets({}, [], OPTIONS)], ["none"]
         )
 
-    def test_uniform_result_merges_to_one_target(self) -> None:
+    def test_uniform_result_merges_to_one_target_under_a_none_cap(self) -> None:
         targets = suggest_targets({"a": 1e12}, ["a"], OPTIONS)
-        self.assertEqual(len(targets), 1)
         self.assertEqual(
-            targets[0],
-            {
-                "max_width": 4096,
-                "max_height": 2160,
-                "max_fps": 30,
-                "method": "a",
-                "multiplier": 2,
-            },
+            targets,
+            [
+                {
+                    "max_width": 8192,
+                    "max_height": 4320,
+                    "max_fps": 120,
+                    "method": "none",
+                    "multiplier": 2,
+                },
+                {
+                    "max_width": 4096,
+                    "max_height": 2160,
+                    "max_fps": 30,
+                    "method": "a",
+                    "multiplier": 2,
+                },
+            ],
         )
+
+    def test_files_beyond_the_measured_levels_are_left_alone(self) -> None:
+        targets = suggest_targets({"a": 1e12}, ["a"], OPTIONS)
+        self.assertEqual(method_at(targets, 3840, 2160, 30), "a")
+        self.assertEqual(method_at(targets, 3840, 2160, 50), "none")
+        self.assertEqual(method_at(targets, 7680, 4320, 24), "none")
 
     def test_merged_list_matches_every_level_like_the_full_list(self) -> None:
         points = [

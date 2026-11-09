@@ -4,6 +4,7 @@ local M = {NONE = "none"}
 
 -- 24 and 30 fps limits should still cover a container reporting 30.003.
 local FPS_TOLERANCE = 0.01
+local NTSC_RATIO = 1.001
 
 function M.weight(target)
 	return target.max_width * target.max_height * target.max_fps
@@ -41,7 +42,10 @@ end
 --- What to run for a file, or nil if it shouldn't be interpolated.
 function M.resolve(settings, width, height, fps)
 	if not width or not height or not fps or fps <= 0 then return nil end
-	if settings.fps_cutoff > 0 and fps >= settings.fps_cutoff then return nil end
+	-- 59.94 is "60 fps" to anyone setting a cutoff of 60.
+	if settings.fps_cutoff > 0 and fps * NTSC_RATIO + FPS_TOLERANCE >= settings.fps_cutoff then
+		return nil
+	end
 	local target = M.match(settings.targets, width, height, fps)
 	local method = target and target.method or settings.default_method
 	if method == M.NONE then return nil end
@@ -50,6 +54,14 @@ function M.resolve(settings, width, height, fps)
 		multiplier = target and target.multiplier or settings.default_multiplier,
 		target = target,
 	}
+end
+
+--- The user-data of our filter in mpv's "vf" property, if it's there.
+function M.filter_user_data(filters)
+	for _, filter in ipairs(filters) do
+		if filter.label == "interpolation" then return filter.params["user-data"] end
+	end
+	return nil
 end
 
 return M

@@ -233,7 +233,13 @@ do
 	if warning then mp.osd_message(warning, 5) end
 end
 
-mp.register_event("file-loaded", apply_filter)
+mp.register_event("file-loaded", function()
+	-- The filter may have been dropped since, by an error or a "vf clr" elsewhere.
+	if not benchmarking then
+		applied = targets.filter_user_data(mp.get_property_native("vf") or {})
+	end
+	apply_filter()
+end)
 mp.register_script_message("toggle", toggle)
 mp.register_script_message("menu-event", on_menu_event)
 mp.register_script_message("open-menu", function()

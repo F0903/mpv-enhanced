@@ -182,4 +182,18 @@ def suggest_targets(
         )
         if next_covering is None or next_covering["method"] != level["method"]:
             merged.append(level)
-    return sorted(merged, key=_weight, reverse=True)
+    merged.sort(key=_weight, reverse=True)
+    if merged[0]["method"] != NO_METHOD:
+        # Nothing above the measured levels was tested, so leave such files alone.
+        largest = options.resolutions[-1]
+        merged.insert(
+            0,
+            {
+                "max_width": largest.width,
+                "max_height": largest.height,
+                "max_fps": max(options.frame_rates),
+                "method": NO_METHOD,
+                "multiplier": SUGGESTED_MULTIPLIER,
+            },
+        )
+    return merged

@@ -569,6 +569,8 @@ def _benchmark_and_save(
     stdout: TextIO,
 ) -> bool:
     """Run the benchmark and save its suggestions; returns whether it did."""
+    if (app / SETTINGS).exists() and load_settings(app) is None:
+        raise InstallerError(f"{app / SETTINGS} isn't valid; fix or delete it first")
     if (load_settings(app) or {}).get("targets"):
         print("Replace your existing targets? [y/N]: ", end="", flush=True, file=stdout)
         if stdin.readline().strip().lower() not in ("y", "yes"):
@@ -639,7 +641,13 @@ def _finish_interpolation(
     interactive = stdin.isatty() and not args.yes
     accepted = interactive and (first_install or args.command == "profile")
     offer = offer_benchmark or _offer_benchmark
-    accepted = accepted and offer(app, manifest, methods, stdin, stdout)
+    if accepted:
+        try:
+            accepted = offer(app, manifest, methods, stdin, stdout)
+        except InstallerError as exc:
+            # The install itself succeeded, so carry on without suggestions.
+            print(f"Skipping the benchmark: {exc}", file=stdout)
+            accepted = False
     if not first_install:
         return
     enabled = False

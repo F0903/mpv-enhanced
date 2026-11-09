@@ -15,7 +15,7 @@ from mpv_enhanced_installer.cli import main
 from mpv_enhanced_installer.downloads import bar
 from mpv_enhanced_installer.installer import INSTALL_INFO
 from mpv_enhanced_installer.platforms import PlatformInfo
-from mpv_enhanced_installer.settings import load_settings, save_settings
+from mpv_enhanced_installer.settings import SETTINGS, load_settings, save_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = PlatformInfo("windows", "x86_64")
@@ -186,7 +186,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0, errors)
         self.assertIn("It takes a few minutes", output)
         self.assertIn("Close games", output)
-        self.assertEqual(load_settings(self.app)["targets"][0]["method"], "rtx-high")
+        self.assertEqual(load_settings(self.app)["targets"][-1]["method"], "rtx-high")
 
     def test_existing_targets_ask_and_default_to_no(self) -> None:
         save_settings(self.app, {"targets": [{"method": "mine"}]})
@@ -199,14 +199,14 @@ class CommandLineTests(unittest.TestCase):
     def test_existing_targets_can_be_replaced(self) -> None:
         save_settings(self.app, {"targets": [{"method": "mine"}]})
         self.run_cli(stdin=Terminal("y\n"))
-        self.assertEqual(load_settings(self.app)["targets"][0]["method"], "rtx-high")
+        self.assertEqual(load_settings(self.app)["targets"][-1]["method"], "rtx-high")
 
     def test_suggest_to_writes_a_file_and_leaves_settings_alone(self) -> None:
         save_settings(self.app, {"targets": [{"method": "mine"}]})
         out = self.root / "suggested.json"
         code, _, errors = self.run_cli("--suggest-to", str(out), stdin=StringIO())
         self.assertEqual(code, 0, errors)
-        self.assertEqual(json.loads(out.read_text("utf-8"))[0]["method"], "rtx-high")
+        self.assertEqual(json.loads(out.read_text("utf-8"))[-1]["method"], "rtx-high")
         self.assertEqual(load_settings(self.app)["targets"], [{"method": "mine"}])
 
     def test_progress_file_is_written(self) -> None:
@@ -237,7 +237,17 @@ class CommandLineTests(unittest.TestCase):
         code, output, errors = self.run_cli(stdin=Terminal(""))
         self.assertEqual(code, 0, errors)
         self.assertIn("Could not measure RTX High", output)
-        self.assertEqual(load_settings(self.app)["targets"][0]["method"], "rife-4.25")
+        self.assertEqual(load_settings(self.app)["targets"][-1]["method"], "rife-4.25")
+
+    def test_a_malformed_settings_file_is_not_overwritten(self) -> None:
+        path = self.app / SETTINGS
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{oops", encoding="utf-8")
+        code, _, errors = self.run_cli(stdin=Terminal(""))
+        self.assertEqual(code, 2)
+        self.assertIn(str(path), errors)
+        self.assertEqual(path.read_text(encoding="utf-8"), "{oops")
+        self.benchmark.assert_not_called()
 
     def test_says_so_when_the_pc_cannot_keep_up_with_anything(self) -> None:
         self.benchmark.side_effect = lambda *_a, **_k: {"rtx-high": 1.0}
@@ -292,7 +302,15 @@ class InstallOfferTests(CommandLineTests):
         self.assertIn("[ON/off]", output)
         settings = load_settings(self.app)
         self.assertTrue(settings["enabled"])
-        self.assertEqual(settings["targets"][0]["method"], "rtx-high")
+        self.assertEqual(settings["targets"][-1]["method"], "rtx-high")
+
+    def test_a_failed_benchmark_does_not_end_the_install_flow(self) -> None:
+        self.benchmark.side_effect = lambda *_a, **_k: {"rtx-high": 0.0}
+        output = self.finish("\n\n")
+        self.assertIn("could not measure", output)
+        self.assertIn("Start with interpolation on or off?", output)
+        self.assertIn("[on/OFF]", output)
+        self.assertFalse(load_settings(self.app)["enabled"])
 
     def test_update_never_offers_the_benchmark(self) -> None:
         save_settings(self.app, {"enabled": True})

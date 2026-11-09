@@ -73,8 +73,23 @@ class MatchingTests(unittest.TestCase):
     def test_at_or_above_the_cutoff_gets_no_filter(self) -> None:
         self.assertIsNone(self.resolve(settings(cutoff=60), 1920, 1080, 60))
 
-    def test_just_below_the_cutoff_is_interpolated(self) -> None:
-        self.assertIsNotNone(self.resolve(settings(cutoff=60), 1920, 1080, 59.94))
+    def test_ntsc_rates_count_as_the_cutoff_they_round_to(self) -> None:
+        self.assertIsNone(self.resolve(settings(cutoff=60), 1920, 1080, 59.94))
+        self.assertIsNone(self.resolve(settings(cutoff=30), 1920, 1080, 29.97))
+
+    def test_clearly_below_the_cutoff_is_interpolated(self) -> None:
+        self.assertIsNotNone(self.resolve(settings(cutoff=60), 1920, 1080, 50))
+
+    def test_finds_the_running_filters_user_data(self) -> None:
+        running = to_lua(
+            [
+                {"label": "other", "params": {"user-data": "no"}},
+                {"name": "unlabelled"},
+                {"label": "interpolation", "params": {"user-data": "rtx-high/2"}},
+            ]
+        )
+        self.assertEqual(self.targets.filter_user_data(running), "rtx-high/2")
+        self.assertIsNone(self.targets.filter_user_data(to_lua([])))
 
     def test_cutoff_zero_means_off(self) -> None:
         self.assertIsNotNone(self.resolve(settings(cutoff=0), 1920, 1080, 120))
