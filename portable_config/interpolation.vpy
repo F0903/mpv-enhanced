@@ -13,6 +13,7 @@ import rife_config as config
 from pathlib import Path
 
 from vs_script.choice import choice_settings, parse_user_data
+from vs_script.cuts import mark_cuts
 from vs_script.expensive_clip_mode import ExpensiveClipMode
 
 
@@ -29,24 +30,6 @@ def print_log(*values: object):
         return
     print(*values, file=config.log)
     config.log.flush()  # Force flush to ensure output is written immediately
-
-def mark_scene_changes(clip: vs.VideoNode, threshold: float) -> vs.VideoNode:
-    """Set _SceneChangeNext like misc.SCDetect, using only core filters.
-
-    vsrife's own sc_threshold path needs the misc plugin, which VapourSynth no
-    longer ships; with the prop already set, rife() is called with sc_threshold=None.
-    """
-    gray = clip.resize.Bicubic(format=vs.GRAY8, matrix_s="709")
-    stats = core.std.PlaneStats(gray, gray[1:] + gray[-1])
-
-    def set_next(n: int, f: vs.VideoFrame) -> vs.VideoFrame:
-        fout = f.copy()
-        fout.props["_SceneChangeNext"] = int(f.props["PlaneStatsDiff"] > threshold)
-        return fout
-
-    marked = core.std.ModifyFrame(stats, stats, set_next)
-    return clip.std.CopyFrameProps(marked, "_SceneChangeNext")
-
 
 def interpolate(clip: vs.VideoNode, settings, multiplier: Fraction) -> vs.VideoNode:
     os.makedirs(os.path.join(script_dir, "cache", "tensorrt"), exist_ok=True)
@@ -97,6 +80,8 @@ def interpolate(clip: vs.VideoNode, settings, multiplier: Fraction) -> vs.VideoN
         f"Using settings:\nscale: {config.scale},ensemble={config.ensemble},gpu_index={config.gpu_index},gpu_tensorrt={settings['tensorrt']}"
     )
 
+    if config.sc:
+        clip = mark_cuts(clip)
     # Change format for RIFE
     clip = core.resize.Lanczos(
         clip=clip,
@@ -105,8 +90,6 @@ def interpolate(clip: vs.VideoNode, settings, multiplier: Fraction) -> vs.VideoN
         transfer_in=config.output_transfer,
         primaries_in=config.output_primaries,
     )
-    if config.sc:
-        clip = mark_scene_changes(clip, config.sc_threshold)
     clip = rife(
         clip=clip,
         model=settings["rife_model"],
@@ -116,6 +99,8 @@ def interpolate(clip: vs.VideoNode, settings, multiplier: Fraction) -> vs.VideoN
         scale=config.scale,
         ensemble=config.ensemble,
         sc=config.sc,
+        # mark_cuts already set _SceneChangeNext; vsrife's own detector needs the
+        # misc plugin, which VapourSynth no longer ships.
         sc_threshold=None,
         trt=settings["tensorrt"],
         trt_optimization_level=config.tensorrt_optimization,

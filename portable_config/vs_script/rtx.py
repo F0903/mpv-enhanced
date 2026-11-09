@@ -12,12 +12,9 @@ import torch.nn.functional as F
 import vapoursynth as vs
 from nvvfx import ImageEncoding, VideoFrameGeneration
 
-core = vs.core
+from vs_script.cuts import following, mark_cuts
 
-# A cut is a large frame difference that its neighbours don't share. Fast motion
-# is large too, but stays large, and NVIDIA's own detector mistakes it for a cut.
-CUT_MINIMUM = 0.06
-CUT_SPIKE = 2.5
+core = vs.core
 
 # (Kr, Kb) by the matrix number mpv reports in _ColorSpace.
 LUMA_WEIGHTS = {
@@ -38,10 +35,12 @@ def interpolate(
     """Raise ``source`` to ``multiplier`` times its frame rate."""
     if source.format.id != vs.YUV420P10:
         source = core.resize.Point(source, format=vs.YUV420P10)
+    source = mark_cuts(source)
 
     device = torch.device("cuda", 0)
     effect = VideoFrameGeneration(
         mode=VideoFrameGeneration.Mode[mode],
+        # NVIDIA's own detector mistakes fast motion for cuts.
         automatic_shot_change_detection_enabled=False,
         device=0,
         image_encoding=ImageEncoding.RGB10A2,
@@ -116,9 +115,7 @@ def interpolate(
         if timestep == 0:
             return f[0]  # Source frames pass through untouched.
         index = position // multiplier.numerator
-        difference = f[2].props["PlaneStatsDiff"]
-        neighbours = max(f[3].props["PlaneStatsDiff"], f[4].props["PlaneStatsDiff"])
-        is_cut = difference > CUT_MINIMUM and difference > CUT_SPIKE * neighbours
+        is_cut = bool(f[0].props["_SceneChangeNext"])
         previous = packed_source(index, f[0])
         current = packed_source(index + 1, f[1])
         with run_lock:
@@ -135,18 +132,7 @@ def interpolate(
         repeated = core.std.Interleave([clip] * multiplier.numerator)
         return repeated[:: multiplier.denominator]
 
-    def following(clip: vs.VideoNode) -> vs.VideoNode:
-        return clip.std.DuplicateFrames(clip.num_frames - 1)[1:]
-
-    luma = core.resize.Bilinear(source, 480, 270, format=vs.GRAY8)
-    stats = core.std.PlaneStats(luma, following(luma))
-    clips = [
-        expanded(source),
-        expanded(following(source)),
-        expanded(stats),
-        expanded(stats.std.DuplicateFrames(0)),
-        expanded(following(stats)),
-    ]
+    clips = [expanded(source), expanded(following(source))]
     result = clips[0].std.FrameEval(
         lambda n: clips[0].std.ModifyFrame(clips, generate), clip_src=clips
     )

@@ -47,9 +47,8 @@ expensive_clip_handling = ExpensiveClipMode.DOWNSCALE
 # Resolution to downscale to if expensive_clip_handling is "downscale"
 downscale_res = (1920, 1080)
 
-# To use scene change detection or not
+# Detect cuts between shots, so RIFE doesn't blend two shots together
 sc = True
-sc_threshold = 0.15
 
 # =============================================================================
 # GPU and TensorRT Settings
