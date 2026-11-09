@@ -108,6 +108,10 @@ class Layout:
         receipt = self._receipt(version)
         return receipt.profile if receipt else None
 
+    def methods(self, version: str) -> tuple[str, ...]:
+        receipt = self._receipt(version)
+        return receipt.methods if receipt else ()
+
     def components(self, version: str) -> tuple[str, ...]:
         receipt = self._receipt(version)
         return tuple(item.name for item in receipt.components) if receipt else ()

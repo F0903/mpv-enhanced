@@ -539,3 +539,7 @@ def _default_cache_dir() -> Path:
     if os.environ.get("XDG_CACHE_HOME"):
         return Path(os.environ["XDG_CACHE_HOME"]) / "mpv-enhanced"
     return Path.home() / ".cache" / "mpv-enhanced"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

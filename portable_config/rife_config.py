@@ -120,14 +120,6 @@ tensorrt_max_shape = [
 log = None #open("./rife_log.txt", "w")
 
 
-# The installer owns rife_profile.py and updates it when profiles change.
-try:
-    from rife_profile import *  # type: ignore[import-not-found]  # noqa: F403
-except ModuleNotFoundError as error:
-    if error.name != "rife_profile":
-        raise
-
-
 # Keep personal settings in rife_config_local.py. It is imported last so user
 # choices take precedence over both defaults and the selected profile.
 try:

@@ -127,6 +127,54 @@ def write_receipt(
 
 
 class DoctorTests(unittest.TestCase):
+    def test_installed_methods_are_expected_in_the_receipt(self) -> None:
+        data = {
+            "schema_version": 1,
+            "components": {
+                "config": {
+                    "kind": "local",
+                    "path": "portable_config",
+                    "destination": "portable_config",
+                },
+                "extra": {
+                    "kind": "local",
+                    "path": "portable_config",
+                    "destination": "extra",
+                },
+            },
+            "profiles": {"core": {"components": ["config"]}},
+            "methods": {
+                "m": {
+                    "description": "A method",
+                    "components": ["extra"],
+                    "choices": [{"id": "a", "title": "A", "rank": 1, "settings": {}}],
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = prepare_source(root)
+            install = root / "install"
+            (install / "portable_config").mkdir(parents=True)
+            InstallationReceipt.create(
+                release=VERSION,
+                profile="core",
+                platform="windows-x86_64",
+                components=tuple(
+                    InstalledComponent(name=name, version="test", kind="test")
+                    for name in ("config", "extra")
+                ),
+                methods=("m",),
+            ).write(install)
+            checks = run_doctor(
+                Manifest.from_data(data),
+                platform=PlatformInfo("windows", "x86_64"),
+                source_root=source,
+                install_dir=install,
+            )
+        by_name = {check.name: check for check in checks}
+        self.assertTrue(by_name["receipt:components"].ok, by_name["receipt:components"])
+
     def test_profile_is_inferred_and_core_files_are_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

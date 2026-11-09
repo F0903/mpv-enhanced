@@ -32,6 +32,7 @@ class InstallationReceipt:
     installed_at: str
     components: tuple[InstalledComponent, ...]
     schema_version: int = 1
+    methods: tuple[str, ...] = ()
 
     @classmethod
     def create(
@@ -41,6 +42,7 @@ class InstallationReceipt:
         profile: str,
         platform: str,
         components: tuple[InstalledComponent, ...],
+        methods: tuple[str, ...] = (),
     ) -> InstallationReceipt:
         return cls(
             release=release,
@@ -48,6 +50,7 @@ class InstallationReceipt:
             platform=platform,
             installed_at=datetime.now(UTC).isoformat(timespec="seconds"),
             components=components,
+            methods=methods,
         )
 
     @classmethod
@@ -75,6 +78,7 @@ class InstallationReceipt:
                 platform=str(data["platform"]),
                 installed_at=str(data["installed_at"]),
                 components=components,
+                methods=tuple(str(item) for item in data.get("methods", [])),
             )
         except (
             OSError,
@@ -112,6 +116,7 @@ class InstallationReceipt:
             f"profile = {_quote(self.profile)}",
             f"platform = {_quote(self.platform)}",
             f"installed_at = {_quote(self.installed_at)}",
+            f"methods = [{', '.join(_quote(item) for item in self.methods)}]",
         ]
         for component in self.components:
             lines.extend(

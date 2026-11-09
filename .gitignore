@@ -27,4 +27,4 @@ portable_config/*.log
 # User-owned overrides. The installer creates these from the tracked examples.
 portable_config/mpv-local.conf
 portable_config/rife_config_local.py
-portable_config/rife_profile.py
+portable_config/script-opts/mpv_enhanced*.json

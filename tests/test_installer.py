@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -11,6 +12,8 @@ from mpv_enhanced_installer.errors import (
     OfflineRuntimeUnsupportedError,
 )
 from mpv_enhanced_installer.installer import (
+    DEFAULT_PRESERVED_PATHS,
+    INSTALL_INFO,
     Installer,
     check_gpu,
     check_system_program,
@@ -206,12 +209,6 @@ class TransactionalInstallerTests(unittest.TestCase):
                 ),
                 "local-default",
             )
-            self.assertIn(
-                "tensorrt = False",
-                (target / "portable_config" / "rife_profile.py").read_text(
-                    encoding="utf-8"
-                ),
-            )
             receipt = InstallationReceipt.load(target)
             self.assertEqual(receipt.release, VERSION)
             self.assertEqual(receipt.profile, "core")
@@ -283,23 +280,85 @@ class TransactionalInstallerTests(unittest.TestCase):
             self.assertFalse((root / "installed.previous").exists())
             self.assertEqual(list(root.glob(".installed.staging-*")), [])
 
-    def test_tensorrt_profile_writes_managed_true_value(self) -> None:
+    def _method_installer(self, root: Path) -> Installer:
+        (root / "source" / "portable_config").mkdir(parents=True)
+        manifest = Manifest.from_data(
+            {
+                "schema_version": 1,
+                "components": {
+                    "config": {
+                        "kind": "local",
+                        "path": "portable_config",
+                        "destination": "portable_config",
+                    },
+                },
+                "profiles": {"core": {"components": ["config"]}},
+                "interpolation": {
+                    "resolutions": [{"label": "4K", "width": 4096, "height": 2160}],
+                    "frame_rates": [24],
+                    "multipliers": [2],
+                    "fps_cutoffs": [60],
+                    "default_fps_cutoff": 60,
+                },
+                "methods": {
+                    "m": {
+                        "description": "A method",
+                        "components": ["config"],
+                        "choices": [
+                            {"id": "a", "title": "A", "rank": 2, "settings": {"x": 1}},
+                            {"id": "b", "title": "B", "rank": 1, "settings": {"x": 2}},
+                        ],
+                    }
+                },
+            },
+        )
+        return Installer(
+            manifest,
+            ArtifactCache(root / "cache"),
+            source_root=root / "source",
+            platform=PlatformInfo("windows", "x86_64"),
+        )
+
+    def test_install_info_lists_choices_options_and_benchmark_command(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "source" / "portable_config"
-            source.mkdir(parents=True)
-            installer = Installer(
-                local_manifest(),
-                ArtifactCache(root / "cache"),
-                source_root=root / "source",
-                platform=PlatformInfo("windows", "x86_64"),
-            )
             target = root / "installed"
-            installer.install("rife-tensorrt", target)
-            self.assertIn(
-                "tensorrt = True",
-                (target / "portable_config" / "rife_profile.py").read_text(),
+            result = self._method_installer(root).install(
+                "core", target, methods=("m",)
             )
+            info = json.loads((target / INSTALL_INFO).read_text("utf-8"))
+        self.assertEqual([item["id"] for item in info["choices"]], ["b", "a"])
+        self.assertEqual(info["choices"][0]["title"], "B")
+        self.assertEqual(info["choices"][0]["settings"], {"x": 2})
+        self.assertEqual(info["options"]["resolutions"][0]["label"], "4K")
+        self.assertEqual(info["options"]["default_fps_cutoff"], 60)
+        self.assertEqual(
+            info["benchmark_command"][1:3], ["-m", "mpv_enhanced_installer.cli"]
+        )
+        self.assertIn(str(target.resolve()), info["benchmark_command"])
+        self.assertEqual(result.receipt.methods, ("m",))
+
+    def test_install_without_methods_lists_no_choices(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "installed"
+            self._method_installer(root).install("core", target)
+            info = json.loads((target / INSTALL_INFO).read_text("utf-8"))
+        self.assertEqual(info["choices"], [])
+
+    def test_settings_file_is_preserved(self) -> None:
+        self.assertIn(
+            "portable_config/script-opts/mpv_enhanced.json", DEFAULT_PRESERVED_PATHS
+        )
+
+    def test_receipt_round_trips_methods(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipt = InstallationReceipt.create(
+                release="1", profile="core", platform="x", components=(), methods=("m",)
+            )
+            receipt.write(root)
+            self.assertEqual(InstallationReceipt.load(root).methods, ("m",))
 
     def test_offline_uv_runtime_is_rejected_before_staging(self) -> None:
         manifest = Manifest.from_data(

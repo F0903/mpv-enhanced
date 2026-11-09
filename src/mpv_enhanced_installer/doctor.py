@@ -95,6 +95,9 @@ def run_doctor(
             resolved = manifest.resolve_profile(
                 name,
                 platform,
+                methods=(receipt.methods if receipt else ())
+                if name == profile_name
+                else (),
                 optional=installed_optional if name == profile_name else (),
             )
             if install_root is not None and name == profile_name:
