@@ -27,14 +27,17 @@ def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+def bar(done: int, total: int) -> str:
+    filled = BAR_WIDTH * done // total
+    return "[" + "#" * filled + "-" * (BAR_WIDTH - filled) + "]"
+
+
 def progress_line(name: str, done: int, total: int | None) -> str:
     """One line of download progress, short enough for an 80-column terminal."""
     name = name[:28].ljust(28)
     if not total:
         return f"{name}  {done / 1e6:.1f} MB"
-    filled = BAR_WIDTH * done // total
-    bar = "#" * filled + "-" * (BAR_WIDTH - filled)
-    return f"{name}  [{bar}] {done * 100 // total:3d}%  {total / 1e6:.1f} MB"
+    return f"{name}  {bar(done, total)} {done * 100 // total:3d}%  {total / 1e6:.1f} MB"
 
 
 def download_url(url: str, destination: Path) -> None:

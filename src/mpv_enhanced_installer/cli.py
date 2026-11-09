@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -12,16 +13,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
+from .benchmark import install_choices, run_benchmark, suggest_targets
 from .doctor import run_doctor
-from .downloads import ArtifactCache, Downloader, download_url
+from .downloads import ArtifactCache, Downloader, bar, download_url
 from .errors import InstallerError
 from .installer import Installer, check_gpu, check_system_program
 from .manager import Layout, is_in_use, rollback, update, use
 from .manifest import Manifest
 from .platforms import PlatformInfo, running_in_wsl
-from .settings import SETTINGS, reconcile_targets, set_enabled
+from .settings import (
+    NO_METHOD,
+    SETTINGS,
+    load_settings,
+    reconcile_targets,
+    set_enabled,
+    set_targets,
+)
 from .version import VERSION
 
+BENCHMARK_BRIEFING = """\
+The benchmark tests each interpolation method on this PC to suggest the best
+settings for different videos. It takes a few minutes at most, and no window
+opens. Close games and other GPU-heavy programs first, or the results will be low."""
 NVIDIA_TENSORRT_SLA_URL = (
     "https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html"
 )
@@ -135,6 +148,16 @@ def build_parser() -> argparse.ArgumentParser:
             subparsers.add_parser(name, help=description), subcommand=True
         )
 
+    benchmark = subparsers.add_parser(
+        "benchmark", help="measure interpolation methods and suggest target overrides"
+    )
+    _manifest_arguments(benchmark, subcommand=True)
+    benchmark.add_argument("--install-dir", type=Path)
+    benchmark.add_argument(
+        "--suggest-to", type=Path, help="write suggestions here without saving them"
+    )
+    benchmark.add_argument("--progress-file", type=Path)
+
     use_parser = subparsers.add_parser(
         "use", help="make an installed version active and put mpv on the PATH"
     )
@@ -187,6 +210,8 @@ def main(
             return 0 if all(item.ok for item in checks) else 1
         if args.command == "status":
             return _status(layout, platform, stdout)
+        if args.command == "benchmark":
+            return _benchmark_command(args, manifest, platform, layout, stdin, stdout)
         if args.command == "use":
             for message in use(layout, args.version, platform):
                 print(message, file=stdout)
@@ -488,6 +513,115 @@ def _tick_screen(
     return selected
 
 
+def _measure_and_suggest(
+    app: Path,
+    manifest: Manifest,
+    platform: PlatformInfo,
+    stdout: TextIO,
+    progress_file: Path | None = None,
+) -> list[dict[str, object]]:
+    """Run the benchmark and turn its measurements into target overrides."""
+    assert manifest.interpolation is not None
+    choices = install_choices(app)
+
+    def progress(done: int, total: int, name: str) -> None:
+        if progress_file is not None:
+            progress_file.write_text(f"{done} {total}\n", encoding="utf-8")
+            return
+        print(
+            f"\r{name[:28].ljust(28)}  {bar(done, total)} {done}/{total}",
+            end="" if done < total else "\n",
+            flush=True,
+            file=stdout,
+        )
+
+    capacities = run_benchmark(app, choices, platform, progress=progress)
+    # A failed run says nothing about speed, so it must not become "None everywhere".
+    if not any(capacities.values()):
+        raise InstallerError(
+            "the benchmark could not measure any method; close GPU-heavy programs, "
+            "including other mpv windows, and try again"
+        )
+    for item in choices:
+        if capacities.get(item["id"]) == 0.0:
+            print(f"Could not measure {item['title']}.", file=stdout)
+    if any(item["settings"].get("tensorrt") for item in choices):
+        print(
+            "TensorRT methods were skipped: building their engines takes too long.",
+            file=stdout,
+        )
+    targets = suggest_targets(
+        capacities, [item["id"] for item in choices], manifest.interpolation
+    )
+    if all(target["method"] == NO_METHOD for target in targets):
+        print(
+            "This PC couldn't keep up with any method, so they're all set to None.",
+            file=stdout,
+        )
+    return targets
+
+
+def _benchmark_and_save(
+    app: Path,
+    manifest: Manifest,
+    platform: PlatformInfo,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> bool:
+    """Run the benchmark and save its suggestions; returns whether it did."""
+    if (load_settings(app) or {}).get("targets"):
+        print("Replace your existing targets? [y/N]: ", end="", flush=True, file=stdout)
+        if stdin.readline().strip().lower() not in ("y", "yes"):
+            return False
+    set_targets(app, _measure_and_suggest(app, manifest, platform, stdout))
+    print("Saved the suggested targets.", file=stdout)
+    return True
+
+
+def _offer_benchmark(
+    app: Path,
+    manifest: Manifest,
+    _methods: tuple[str, ...],
+    stdin: TextIO,
+    stdout: TextIO,
+) -> bool:
+    if not install_choices(app):
+        return False
+    print(BENCHMARK_BRIEFING, file=stdout)
+    print("Run the benchmark now? [Y/n]: ", end="", flush=True, file=stdout)
+    if stdin.readline().strip().lower() not in ("", "y", "yes"):
+        return False
+    return _benchmark_and_save(app, manifest, PlatformInfo.detect(), stdin, stdout)
+
+
+def _benchmark_command(
+    args: argparse.Namespace,
+    manifest: Manifest,
+    platform: PlatformInfo,
+    layout: Layout,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> int:
+    app = args.install_dir or _active_app(layout)
+    if app is None:
+        raise InstallerError("nothing is installed yet; run mpve install first")
+    if not install_choices(app):
+        raise InstallerError(
+            "no interpolation methods are installed; run mpve profile to add one"
+        )
+    if args.suggest_to is not None:
+        targets = _measure_and_suggest(
+            app, manifest, platform, stdout, args.progress_file
+        )
+        args.suggest_to.write_text(json.dumps(targets), encoding="utf-8")
+        return 0
+    if not stdin.isatty():
+        raise InstallerError("run mpve benchmark from a terminal")
+    print(BENCHMARK_BRIEFING, file=stdout)
+    _benchmark_and_save(app, manifest, platform, stdin, stdout)
+    return 0
+
+
 def _finish_interpolation(
     args: argparse.Namespace,
     app: Path,
@@ -495,7 +629,7 @@ def _finish_interpolation(
     methods: tuple[str, ...],
     stdin: TextIO,
     stdout: TextIO,
-    offer_benchmark: Callable[..., bool] = lambda *_: False,
+    offer_benchmark: Callable[..., bool] | None = None,
 ) -> None:
     """Settle the player's settings once the chosen methods are installed."""
     if not methods:
@@ -504,7 +638,8 @@ def _finish_interpolation(
     first_install = not (app / SETTINGS).exists()
     interactive = stdin.isatty() and not args.yes
     accepted = interactive and (first_install or args.command == "profile")
-    accepted = accepted and offer_benchmark(app, manifest, methods, stdin, stdout)
+    offer = offer_benchmark or _offer_benchmark
+    accepted = accepted and offer(app, manifest, methods, stdin, stdout)
     if not first_install:
         return
     enabled = False
