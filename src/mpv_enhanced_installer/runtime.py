@@ -132,7 +132,7 @@ class UvRuntimeBuilder:
         # `uv run` exports its own path as UV, so this is the pinned bootstrap uv.
         uv = self.uv_executable or os.environ.get("UV") or shutil.which("uv")
         if not uv:
-            raise RuntimeSetupError("uv is unavailable; run install.cmd or install.sh")
+            raise RuntimeSetupError("uv is unavailable; run mpve.cmd or mpve.sh")
         return uv
 
     def write_launcher(

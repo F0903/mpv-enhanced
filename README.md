@@ -21,14 +21,14 @@ macOS because vs-rife needs CUDA.
 
 Download the release zip (or clone the repository), extract it, and run:
 
-- **Windows:** `install.cmd`
-- **Linux / macOS:** `./install.sh` (also works from Git Bash, MSYS2, or Cygwin
-  on Windows, where it hands over to `install.cmd`)
+- **Windows:** `mpve.cmd`
+- **Linux / macOS:** `./mpve.sh` (also works from Git Bash, MSYS2, or Cygwin
+  on Windows, where it hands over to `mpve.cmd`)
 
-Both scripts download a pinned, SHA-256-checked `uv`, which installs the
-installer's own Python and runs it. Nothing else needs to be preinstalled.
-When run interactively, the installer offers these profiles, and pressing Enter
-selects the default, `rtx-high`:
+`mpve` is short for mpv-enhanced. Both scripts download a pinned, SHA-256-checked
+`uv`, which installs the manager's own Python and runs it. Nothing else needs to
+be preinstalled. The first run offers these profiles, and pressing Enter selects
+the default, `rtx-high`:
 
 | Profile         | Contents                                                                   |
 | --------------- | -------------------------------------------------------------------------- |
@@ -47,8 +47,8 @@ one of them, the first available profile becomes the default.
 For an unattended install, make the choice explicit:
 
 ```sh
-install.cmd install --profile core --install-dir "%LOCALAPPDATA%\Programs\mpv-enhanced" --yes
-./install.sh install --profile core --install-dir ~/.local/share/mpv-enhanced --yes
+mpve.cmd install --profile core --yes
+./mpve.sh install --profile core --yes
 ```
 
 NVIDIA's software is proprietary and is downloaded directly from NVIDIA by each
@@ -60,27 +60,49 @@ An interactive install displays the agreement and requires typing `accept`.
 After reviewing it, unattended installs must pass `--accept-nvidia-license`
 explicitly; `--yes` never accepts third-party terms.
 
-Other useful commands:
+## Managing an install
+
+Each version installs to `live/<version>/`, holding its own copy of the manager
+(`release/`) and the installed player (`app/`). `live/current` names the active
+version. Running `mpve` with no arguments opens a menu, or use the commands:
 
 ```sh
-install.cmd list-profiles
-install.cmd doctor --install-dir "%LOCALAPPDATA%\Programs\mpv-enhanced"
+mpve.cmd status             # active version and profile
+mpve.cmd profile rtx-medium # switch the active version to another profile
+mpve.cmd update             # install the newest release and switch to it
+mpve.cmd rollback           # switch back to the previous version
+mpve.cmd use 3.0.0          # make an installed version active, and put mpv on the PATH
+mpve.cmd doctor             # check the active install
+mpve.cmd list-profiles
 ```
 
+An update builds the new version alongside the current one and only switches
+once it has installed successfully, keeping your personal settings. The current
+and previous versions are kept. In a git checkout, use `git pull` instead of
+`mpve update`.
+
+`mpve use` is the only command that changes your PATH. It makes `mpv` and `mpve`
+available in new terminals and they always follow the active version, so you
+only need it once. On Windows it adds the `shims` folder to your user PATH; on
+Linux and macOS it creates them in `~/.local/bin`. Without a version it keeps the
+active one.
+
+`--install-dir` installs somewhere else, outside this version management.
 `--cache-dir` keeps verified downloads and the interpolation uv cache in a
 reusable location. `--offline` forbids downloads; it works for `core` once its
 downloads are cached, but not for the interpolation profiles.
 
 ## Running
 
-- **Windows `core`:** run `mpv.exe`; it picks up `portable_config` by itself.
-- **Windows RTX and RIFE:** run `mpv-enhanced.cmd`. It points mpv at the app-local
-  VapourSynth (`VSSCRIPT_PATH`) without touching the registry or global
-  environment variables. VapourSynth itself records which Python each install
-  uses in `%APPDATA%\vapoursynth\vapoursynth.toml` (one entry per install,
-  keyed by path); on Linux that file stays inside the install.
-- **Linux / macOS:** run `./mpv-enhanced`, which starts mpv with
-  `--config-dir` set to the installed `portable_config`.
+Start the player with `mpv-enhanced.cmd` on Windows or `./mpv-enhanced` on Linux
+and macOS. Both sit next to `mpve` and always start the active version, so
+shortcuts and file associations keep working across updates.
+
+On Windows, the launcher points mpv at the app-local VapourSynth
+(`VSSCRIPT_PATH`) without touching the registry or global environment variables.
+VapourSynth itself records which Python each install uses in
+`%APPDATA%\vapoursynth\vapoursynth.toml` (one entry per install, keyed by path);
+on Linux that file stays inside the install.
 
 To move an RTX or RIFE install, reinstall it at the new location: its Python
 environment records its own absolute path. `core` installs can be moved freely.
@@ -110,8 +132,8 @@ Frame interpolation can be toggled with `Ctrl+Shift+R`. Automatic cropping can b
 
 - `manifest.toml`, maintained by hand, defines the profiles and pins every
   download (official mpv builds, the RIFE model) by versioned URL and SHA-256.
-- `uv.pin` holds the uv version and per-platform SHA-256 for `install.cmd`,
-  `install.sh`, and CI.
+- `uv.pin` holds the uv version and per-platform SHA-256 for `mpve.cmd`,
+  `mpve.sh`, and CI.
 - `.python-version` sets the Python for both the installer and the RIFE runtime.
 - The root `uv.lock` pins the installer environment; `runtime/rife/uv.lock`
   pins the complete RIFE Python environment, including the CUDA indexes.

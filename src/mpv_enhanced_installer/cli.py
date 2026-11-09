@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -13,8 +14,10 @@ from .doctor import run_doctor
 from .downloads import ArtifactCache, Downloader, download_url
 from .errors import InstallerError
 from .installer import Installer, check_gpu, check_system_program
+from .manager import Layout, rollback, update, use
 from .manifest import Manifest
 from .platforms import PlatformInfo, running_in_wsl
+from .version import VERSION
 
 NVIDIA_TENSORRT_SLA_URL = (
     "https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html"
@@ -64,34 +67,55 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _manifest_arguments(list_profiles, subcommand=True)
 
-    install = subparsers.add_parser("install", help="assemble and install a profile")
-    _manifest_arguments(install, subcommand=True)
-    install.add_argument("profile_positional", nargs="?", metavar="PROFILE")
-    install.add_argument("--profile", dest="profile_option")
-    install.add_argument(
-        "--install-dir", type=Path, default=Path.cwd() / "mpv-enhanced"
-    )
-    install.add_argument("--cache-dir", type=Path, default=_default_cache_dir())
-    install.add_argument(
-        "--offline",
-        action="store_true",
-        help="forbid downloads; currently supported for core/non-uv profiles only",
-    )
-    install.add_argument(
-        "--yes",
-        action="store_true",
-        help="non-interactive confirmation; never accepts third-party licenses",
-    )
-    install.add_argument(
-        "--accept-nvidia-license",
-        action="store_true",
-        help="confirm acceptance of the NVIDIA TensorRT SLA when required",
-    )
+    for name, description in (
+        ("install", "assemble and install a profile"),
+        ("profile", "switch the active version to another profile"),
+    ):
+        install = subparsers.add_parser(name, help=description)
+        _manifest_arguments(install, subcommand=True)
+        install.add_argument("profile_positional", nargs="?", metavar="PROFILE")
+        install.add_argument("--profile", dest="profile_option")
+        install.add_argument(
+            "--install-dir",
+            type=Path,
+            help="install here instead of under live/, outside version management",
+        )
+        install.add_argument("--cache-dir", type=Path, default=_default_cache_dir())
+        install.add_argument(
+            "--offline",
+            action="store_true",
+            help="forbid downloads; currently supported for core/non-uv profiles only",
+        )
+        install.add_argument(
+            "--yes",
+            action="store_true",
+            help="non-interactive confirmation; never accepts third-party licenses",
+        )
+        install.add_argument(
+            "--accept-nvidia-license",
+            action="store_true",
+            help="confirm acceptance of NVIDIA's license when required",
+        )
 
     doctor = subparsers.add_parser("doctor", help="run read-only environment checks")
     _manifest_arguments(doctor, subcommand=True)
     doctor.add_argument("--profile")
     doctor.add_argument("--install-dir", type=Path)
+
+    for name, description in (
+        ("status", "show the active version and profile"),
+        ("update", "install the newest mpv-enhanced release"),
+        ("rollback", "switch back to the previous version"),
+    ):
+        _manifest_arguments(
+            subparsers.add_parser(name, help=description), subcommand=True
+        )
+
+    use_parser = subparsers.add_parser(
+        "use", help="make an installed version active and put mpv on the PATH"
+    )
+    _manifest_arguments(use_parser, subcommand=True)
+    use_parser.add_argument("version", nargs="?", help="defaults to the active version")
     return parser
 
 
@@ -108,9 +132,13 @@ def main(
     stderr = stderr or sys.stderr
     parser = build_parser()
     try:
+        layout = Layout.from_environment()
         arguments = list(sys.argv[1:] if argv is None else argv)
         if not arguments:
-            arguments = ["install"]
+            chosen = _manager_menu(layout, stdin, stdout)
+            if chosen is None:
+                return 0
+            arguments = chosen
         args = parser.parse_args(arguments)
         manifest = Manifest.load(args.manifest)
         source_root = (args.source_root or args.manifest.parent).resolve()
@@ -127,17 +155,35 @@ def main(
                 platform=platform,
                 source_root=source_root,
                 profile_name=args.profile,
-                install_dir=args.install_dir,
+                install_dir=args.install_dir or _active_app(layout),
             )
             for check in checks:
                 marker = "ok" if check.ok else "FAIL"
                 print(f"[{marker}] {check.name}: {check.detail}", file=stdout)
             return 0 if all(item.ok for item in checks) else 1
-        if args.command == "install":
+        if args.command == "status":
+            return _status(layout, platform, stdout)
+        if args.command == "use":
+            for message in use(layout, args.version, platform):
+                print(message, file=stdout)
+            return 0
+        if args.command == "rollback":
+            print(f"Now using {rollback(layout)}", file=stdout)
+            return 0
+        if args.command == "update":
+            updated = update(layout)
+            print(
+                f"Updated to {updated}" if updated else "Already up to date",
+                file=stdout,
+            )
+            return 0
+        if args.command == "profile" and layout.active() is None:
+            raise InstallerError("nothing is installed yet; run mpve install first")
+        if args.command in ("install", "profile"):
             if running_in_wsl():
                 print(
                     "note: this is WSL, so the Linux version will be installed "
-                    "inside WSL. To install for Windows, run install.cmd from "
+                    "inside WSL. To install for Windows, run mpve.cmd from "
                     "Windows instead.",
                     file=stderr,
                 )
@@ -162,16 +208,29 @@ def main(
                 source_root=source_root,
                 platform=platform,
             )
+            managed = args.install_dir is None
+            if managed:
+                layout.store_release(VERSION, source_root)
             result = installer.install(
                 profile_name,
-                args.install_dir,
+                args.install_dir or layout.app(VERSION),
                 offline=args.offline,
+                carry_from=layout.carry_source(VERSION) if managed else None,
             )
             print(
                 f"Installed {result.receipt.release} ({result.receipt.profile}) to "
                 f"{result.install_dir}",
                 file=stdout,
             )
+            if managed:
+                layout.finish_install(VERSION, platform)
+                # Older versions are the rollback path, so this copy isn't needed.
+                if result.previous_dir is not None:
+                    shutil.rmtree(result.previous_dir, ignore_errors=True)
+                print(
+                    f"Start mpv-enhanced with: {layout.launcher(platform)}", file=stdout
+                )
+                return 0
             if result.previous_dir is not None:
                 print(
                     f"Previous installation retained at {result.previous_dir}",
@@ -193,6 +252,52 @@ def main(
     except InstallerError as exc:
         print(f"error: {exc}", file=stderr)
         return 2
+
+
+def _active_app(layout: Layout) -> Path | None:
+    active = layout.active()
+    return layout.app(active) if active else None
+
+
+def _status(layout: Layout, platform: PlatformInfo, output: TextIO) -> int:
+    active = layout.active()
+    if active is None:
+        print("Nothing is installed yet. Run mpve to install.", file=output)
+        return 0
+    print(f"mpv-enhanced {active}", file=output)
+    print(f"Profile: {layout.profile(active) or 'unknown'}", file=output)
+    print(f"Start with: {layout.launcher(platform)}", file=output)
+    previous = layout.previous()
+    if previous:
+        print(f"Previous version: {previous} (mpve rollback)", file=output)
+    return 0
+
+
+def _manager_menu(
+    layout: Layout,
+    stdin: TextIO,
+    stdout: TextIO,
+) -> list[str] | None:
+    """Pick a command interactively. Returns None to quit."""
+    active = layout.active()
+    if active is None or not stdin.isatty():
+        return ["install"]
+    print(f"mpv-enhanced {active} ({layout.profile(active) or 'unknown'})", file=stdout)
+    choices: list[tuple[str, list[str] | None]] = [
+        ("Change profile", ["profile"]),
+        ("Check for updates", ["update"]),
+    ]
+    previous = layout.previous()
+    if previous:
+        choices.append((f"Roll back to {previous}", ["rollback"]))
+    choices += [("Check this installation", ["doctor"]), ("Quit", None)]
+    for index, (label, _) in enumerate(choices, 1):
+        print(f"  {index}. {label}", file=stdout)
+    print("Choice: ", end="", flush=True, file=stdout)
+    answer = stdin.readline().strip()
+    if not answer.isdigit() or not 1 <= int(answer) <= len(choices):
+        raise InstallerError(f"invalid choice: {answer!r}")
+    return choices[int(answer) - 1][1]
 
 
 def _unavailable_reason(

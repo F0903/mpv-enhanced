@@ -25,7 +25,7 @@ class BootstrapScriptTests(unittest.TestCase):
         for digest in pin.values():
             self.assertRegex(digest, r"^[0-9a-f]{64}$")
 
-        for path in (ROOT / "install.cmd", ROOT / "install.sh", WORKFLOW):
+        for path in (ROOT / "mpve.cmd", ROOT / "mpve.sh", WORKFLOW):
             text = path.read_text(encoding="utf-8")
             with self.subTest(path=path.name):
                 self.assertNotRegex(text, r"\b[0-9a-f]{64}\b")

@@ -1,10 +1,18 @@
 @echo off
 setlocal
 
-rem Fetches the pinned uv (see uv.pin) and hands over to the Python installer.
+rem Fetches the pinned uv (see uv.pin) and hands over to the active release's manager.
 pushd "%~dp0" >nul || exit /b 1
 set "PROJECT_ROOT=%CD%"
-for /f "tokens=1,* delims==" %%A in (uv.pin) do set "PIN_%%A=%%B"
+set "MPVE_ROOT=%CD%"
+set "RELEASE=%CD%"
+if exist ".git" goto :read_pin
+if not exist "live\current" goto :read_pin
+set /p ACTIVE=<"live\current"
+if exist "live\%ACTIVE%\release\pyproject.toml" set "RELEASE=%CD%\live\%ACTIVE%\release"
+
+:read_pin
+for /f "usebackq tokens=1,* delims==" %%A in ("%RELEASE%\uv.pin") do set "PIN_%%A=%%B"
 set "UV_VERSION=%PIN_version%"
 set "UV_SHA256=%PIN_x86_64-pc-windows-msvc%"
 set "UV_DIR=%PROJECT_ROOT%\.bootstrap\uv-%UV_VERSION%-windows-x86_64"
@@ -21,7 +29,8 @@ if not exist "%UV_BIN%" (
 set "UV_PYTHON_INSTALL_DIR=%PROJECT_ROOT%\runtime\controller-python"
 set "UV_PYTHON_NO_REGISTRY=1"
 set "UV_CACHE_DIR=%PROJECT_ROOT%\.uv-cache"
-"%UV_BIN%" run --project "%PROJECT_ROOT%" --locked --no-dev --no-editable mpv-enhanced %*
+cd /d "%RELEASE%"
+"%UV_BIN%" run --project "%RELEASE%" --locked --no-dev --no-editable mpv-enhanced %*
 set "INSTALL_EXIT=%errorlevel%"
 
 :finish

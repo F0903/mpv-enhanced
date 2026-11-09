@@ -141,6 +141,7 @@ class Installer:
         install_dir: str | Path,
         *,
         offline: bool = False,
+        carry_from: Path | None = None,
     ) -> InstallResult:
         profile = self.manifest.resolve_profile(profile_name, self.platform)
         if offline and any(
@@ -157,7 +158,8 @@ class Installer:
                 "the filesystem root cannot be an installation directory"
             )
         target.parent.mkdir(parents=True, exist_ok=True)
-        staging = target.parent / f".{target.name}.staging-{uuid.uuid4().hex}"
+        # Kept short: Python inside the staging folder can hit Windows' path limit.
+        staging = target.parent / f".{target.name}.staging-{uuid.uuid4().hex[:8]}"
         staging.mkdir()
         installed_components: list[InstalledComponent] = []
         try:
@@ -182,7 +184,7 @@ class Installer:
                     platform=self.platform,
                 )
             self._write_managed_profile(staging, profile)
-            self._preserve_user_files(target, staging)
+            self._preserve_user_files(carry_from or target, staging)
             receipt = InstallationReceipt.create(
                 release=VERSION,
                 profile=profile.name,

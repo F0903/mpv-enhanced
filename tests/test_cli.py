@@ -317,7 +317,7 @@ class CliTests(unittest.TestCase):
                 )
 
         self.assertEqual(code, 0, errors.getvalue())
-        self.assertIn("install.cmd", errors.getvalue())
+        self.assertIn("mpve.cmd", errors.getvalue())
 
     @staticmethod
     def _install_args(profile: str, target: Path, cache: Path) -> list[str]:

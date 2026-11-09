@@ -32,24 +32,24 @@ jobs:
       - run: uv lock --check && uv lock --check --project runtime/rife
 
       # Exercise the real bootstrap: pinned uv download, hash check, core install.
-      - name: Install core (Windows, install.cmd)
+      - name: Install core (Windows, mpve.cmd)
         if: runner.os == 'Windows'
         shell: cmd
-        run: call install.cmd install --profile core --yes --install-dir "%RUNNER_TEMP%\mpv-enhanced"
-      - name: Bootstrap through Git Bash (Windows, install.sh)
+        run: call mpve.cmd install --profile core --yes --install-dir "%RUNNER_TEMP%\mpv-enhanced"
+      - name: Bootstrap through Git Bash (Windows, mpve.sh)
         if: runner.os == 'Windows'
         shell: bash
-        run: ./install.sh list-profiles
+        run: ./mpve.sh list-profiles
       - name: Install core (macOS)
         if: runner.os == 'macOS'
         run: |
-          ./install.sh install --profile core --yes --install-dir "$RUNNER_TEMP/mpv-enhanced"
+          ./mpve.sh install --profile core --yes --install-dir "$RUNNER_TEMP/mpv-enhanced"
           "$RUNNER_TEMP/mpv-enhanced/mpv-enhanced" --version
       - name: Install core (Linux, distro mpv)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends mpv
-          ./install.sh install --profile core --yes --install-dir "$RUNNER_TEMP/mpv-enhanced"
+          ./mpve.sh install --profile core --yes --install-dir "$RUNNER_TEMP/mpv-enhanced"
           "$RUNNER_TEMP/mpv-enhanced/mpv-enhanced" --version
 
   release:

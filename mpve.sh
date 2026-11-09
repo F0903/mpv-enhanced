@@ -1,9 +1,16 @@
 #!/bin/sh
-# Fetches the pinned uv (see uv.pin) and hands over to the Python installer.
-# On Windows shells (Git Bash, MSYS2, Cygwin) install.cmd does that instead.
+# Fetches the pinned uv (see uv.pin) and hands over to the active release's manager.
+# On Windows shells (Git Bash, MSYS2, Cygwin) mpve.cmd does that instead.
 set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+release=$project_root
+if [ ! -e "$project_root/.git" ] && [ -f "$project_root/live/current" ]; then
+    active=$(cat "$project_root/live/current")
+    if [ -f "$project_root/live/$active/release/pyproject.toml" ]; then
+        release=$project_root/live/$active/release
+    fi
+fi
 
 fail() {
     printf 'error: %s\n' "$*" >&2
@@ -11,17 +18,17 @@ fail() {
 }
 
 pin() {
-    sed -n "s/^$1=//p" "$project_root/uv.pin"
+    sed -n "s/^$1=//p" "$release/uv.pin"
 }
 
 case "$(uname -s)" in
     MINGW* | MSYS*)
         # MSYS rewrites "/c" into a path; "//c" reaches cmd.exe as "/c".
         # "call" stops cmd from stripping the quotes around a path with spaces.
-        exec cmd.exe //c call "$(cygpath -w "$project_root/install.cmd")" "$@"
+        exec cmd.exe //c call "$(cygpath -w "$project_root/mpve.cmd")" "$@"
         ;;
     CYGWIN*)
-        exec cmd.exe /c call "$(cygpath -w "$project_root/install.cmd")" "$@"
+        exec cmd.exe /c call "$(cygpath -w "$project_root/mpve.cmd")" "$@"
         ;;
     Linux) os=unknown-linux-gnu ;;
     Darwin) os=apple-darwin ;;
@@ -73,6 +80,7 @@ fi
 
 UV_PYTHON_INSTALL_DIR="$project_root/runtime/controller-python"
 UV_CACHE_DIR="$project_root/.uv-cache"
-export UV_PYTHON_INSTALL_DIR UV_CACHE_DIR
-cd "$project_root"
-exec "$uv_bin" run --project "$project_root" --locked --no-dev --no-editable mpv-enhanced "$@"
+MPVE_ROOT="$project_root"
+export UV_PYTHON_INSTALL_DIR UV_CACHE_DIR MPVE_ROOT
+cd "$release"
+exec "$uv_bin" run --project "$release" --locked --no-dev --no-editable mpv-enhanced "$@"
