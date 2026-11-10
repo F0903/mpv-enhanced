@@ -120,6 +120,9 @@ class Layout:
         # First, so that a failure here leaves the previous version active.
         if os.name == "nt":
             set_user_path(self.path_entries(version), self.live, only_if_present=True)
+            set_start_menu_shortcut(
+                self.app(version) / "mpv.exe", self.live, only_if_present=True
+            )
         else:
             link_version(
                 self, version, PlatformInfo.detect(), Path.home(), only_if_present=True
@@ -273,12 +276,60 @@ def set_user_path(
     )
 
 
+def set_start_menu_shortcut(
+    player: Path,
+    versions: Path,
+    *,
+    only_if_present: bool = False,
+    shortcut: Path | None = None,
+) -> None:
+    """Point the Start menu's MPV Enhanced shortcut at ``player``.
+
+    With ``only_if_present``, does nothing unless the shortcut already opens a
+    version inside ``versions``.
+    """
+    shortcut = shortcut or (
+        Path(os.environ["APPDATA"])
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "MPV Enhanced.lnk"
+    )
+    if only_if_present:
+        try:
+            # A shortcut keeps its working folder as UTF-16 text, so ours contain this.
+            if str(versions).encode("utf-16-le") not in shortcut.read_bytes():
+                return
+        except FileNotFoundError:
+            return
+    shortcut.parent.mkdir(parents=True, exist_ok=True)
+    script = (
+        "$ErrorActionPreference = 'Stop';"
+        "$link = (New-Object -ComObject WScript.Shell).CreateShortcut($env:MPVE_LINK);"
+        "$link.TargetPath = $env:MPVE_PLAYER;"
+        "$link.WorkingDirectory = $env:MPVE_FOLDER;"
+        "$link.Save()"
+    )
+    paths = {"MPVE_LINK": shortcut, "MPVE_PLAYER": player, "MPVE_FOLDER": player.parent}
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        env={**os.environ, **{name: str(path) for name, path in paths.items()}},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise InstallerError(f"could not create {shortcut}: {result.stderr.strip()}")
+
+
 def use(
     layout: Layout,
     version: str | None,
     platform: PlatformInfo,
     *,
     add_to_path: Callable[[list[Path], Path], None] = set_user_path,
+    add_shortcut: Callable[[Path, Path], None] = set_start_menu_shortcut,
     home: Path | None = None,
     which: Callable[[str], str | None] = shutil.which,
 ) -> list[str]:
@@ -294,9 +345,11 @@ def use(
     if platform.system == "windows":
         directory = layout.app(version)
         add_to_path(layout.path_entries(version), layout.live)
+        add_shortcut(layout.player(version, platform), layout.live)
         messages.append(
             f"{directory} is on your PATH. Open a new terminal to use mpv and mpve."
         )
+        messages.append("MPV Enhanced is in the Start menu.")
     else:
         link_version(layout, version, platform, home)
         directory = home / ".local" / "bin"

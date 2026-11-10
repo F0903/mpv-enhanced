@@ -16,6 +16,7 @@ from mpv_enhanced_installer.manager import (
     Layout,
     link_version,
     rollback,
+    set_start_menu_shortcut,
     set_user_path,
     update,
     use,
@@ -107,7 +108,11 @@ class UseTests(ManagerTestCase):
             yield home
 
     def use(self, version, platform=WINDOWS, **kwargs):
-        options = {"add_to_path": lambda *_: None, "which": lambda _name: None}
+        options = {
+            "add_to_path": lambda *_: None,
+            "add_shortcut": lambda *_: None,
+            "which": lambda _name: None,
+        }
         return use(self.layout, version, platform, **{**options, **kwargs})
 
     def test_activates_the_version_and_puts_the_real_mpv_on_the_path(self) -> None:
@@ -115,10 +120,18 @@ class UseTests(ManagerTestCase):
         self.install("0.2.0")
         self.layout.activate("0.2.0")
         added: list[tuple[list[Path], Path]] = []
-        messages = self.use("0.1.0", add_to_path=lambda *args: added.append(args))
+        shortcuts: list[tuple[Path, Path]] = []
+        messages = self.use(
+            "0.1.0",
+            add_to_path=lambda *args: added.append(args),
+            add_shortcut=lambda *args: shortcuts.append(args),
+        )
         self.assertEqual(self.layout.active(), "0.1.0")
         self.assertEqual(
             added, [([self.layout.app("0.1.0"), self.layout.root], self.layout.live)]
+        )
+        self.assertEqual(
+            shortcuts, [(self.layout.app("0.1.0") / "mpv.exe", self.layout.live)]
         )
         self.assertIn("Now using 0.1.0", messages)
         self.assertEqual(
@@ -270,6 +283,37 @@ class UseTests(ManagerTestCase):
 
         set_user_path(second, live, only_if_present=True, subkey=subkey)
         self.assertEqual(read()[0], expected.replace("1.0.0", "2.0.0"))
+
+    @unittest.skipUnless(os.name == "nt", "creates a Windows shortcut")
+    def test_start_menu_shortcut_follows_only_versions_of_this_install(self) -> None:
+        shortcut = self.layout.root / "Start Menu" / "MPV Enhanced.lnk"
+        live = self.layout.live
+        first, second = (live / item / "app" / "mpv.exe" for item in ("1.0", "2.0"))
+        for player in (first, second):
+            player.parent.mkdir(parents=True)
+            player.touch()
+
+        def target() -> str:
+            script = "(New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK).TargetPath"
+            return subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                env={**os.environ, "LINK": str(shortcut)},
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+
+        set_start_menu_shortcut(first, live, only_if_present=True, shortcut=shortcut)
+        self.assertFalse(shortcut.exists())
+        set_start_menu_shortcut(first, live, shortcut=shortcut)
+        self.assertEqual(target(), str(first))
+        elsewhere = self.layout.root / "elsewhere"
+        set_start_menu_shortcut(
+            second, elsewhere, only_if_present=True, shortcut=shortcut
+        )
+        self.assertEqual(target(), str(first))
+        set_start_menu_shortcut(second, live, only_if_present=True, shortcut=shortcut)
+        self.assertEqual(target(), str(second))
 
 
 class UpdateTests(ManagerTestCase):

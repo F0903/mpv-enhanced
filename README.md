@@ -100,7 +100,8 @@ keep it pointed there. Without a version it keeps the active one. It changes:
 
 - **Windows:** your user PATH gains the active version's folder, holding the real
   `mpv.exe`, and this project's folder for `mpve`. Terminals already open keep the
-  version they started with.
+  version they started with. The Start menu gains an **MPV Enhanced** shortcut to
+  the active `mpv.exe`.
 - **Linux:** your system `mpv` stays, and `~/.config/mpv` becomes a symlink to the
   active version's configuration. `mpve` is linked into `~/.local/bin`. RIFE
   methods also add `/etc/ld.so.conf.d/mpv-enhanced.conf`, so `sudo` asks for your
@@ -118,9 +119,10 @@ downloads are cached, but not with interpolation methods.
 
 ## Running
 
-After `mpve use`, start the player with `mpv`. On Windows and macOS, `mpve status`
-shows the full path, which changes with each version, so shortcuts and file
-associations should be pointed at the new one after an update.
+After `mpve use`, start the player with `mpv`, or on Windows from the Start menu.
+On Windows and macOS, `mpve status` shows the full path, which changes with each
+version, so your own shortcuts and file associations should be pointed at the new
+one after an update.
 
 On Windows, `mpv.exe` is started directly with no launcher: a copy of
 `VSScript.dll` beside it loads the app-local VapourSynth, and the installer
