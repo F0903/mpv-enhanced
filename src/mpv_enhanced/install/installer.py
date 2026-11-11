@@ -1,33 +1,32 @@
-"""Transactional assembly, promotion, preservation, and rollback."""
+"""Assembly of an installation in a staging directory, keeping the user's files."""
 
 from __future__ import annotations
 
 import json
-import re
 import shutil
-import subprocess
 import sys
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from . import VERSION
-from .archives import extract_archive
-from .downloads import ArtifactCache
-from .errors import InstallerError, OfflineRuntimeUnsupportedError, PromotionError
-from .manifest import (
+from .. import VERSION
+from ..archives import extract_archive
+from ..downloads import ArtifactCache
+from ..errors import InstallerError, OfflineRuntimeUnsupportedError
+from ..manifest import (
     Component,
     GpuRequirement,
     Manifest,
     ResolvedProfile,
     SystemProgram,
-    parse_version,
     validate_relative_path,
 )
-from .platforms import PlatformInfo
+from ..platforms import PlatformInfo
 from .receipt import InstallationReceipt, InstalledComponent
 from .runtime import UvRuntimeBuilder
+from .staging import promote_staging, rollback_installation
+from .system import check_gpu, check_system_program
 
 INSTALL_INFO = "portable_config/script-opts/mpv_enhanced_install.json"
 DEFAULT_PRESERVED_PATHS = (
@@ -42,72 +41,6 @@ DEFAULT_PRESERVED_PATHS = (
     "portable_config/watch_later",
     "portable_config/cache",
 )
-
-
-def _run_output(command: Sequence[str]) -> str:
-    try:
-        completed = subprocess.run(
-            list(command), check=False, capture_output=True, text=True, timeout=60
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise InstallerError(f"cannot run {command[0]!r}: {exc}") from exc
-    return completed.stdout + completed.stderr
-
-
-def check_system_program(
-    program: SystemProgram,
-    *,
-    run: Callable[[Sequence[str]], str] = _run_output,
-    which: Callable[[str], str | None] = shutil.which,
-) -> tuple[str, str]:
-    """Return the path and version of a required host program, or raise."""
-    path = which(program.command)
-    if path is None:
-        raise InstallerError(
-            f"{program.command!r} was not found on PATH; install it with your "
-            "system package manager first"
-        )
-    version = parse_version(run((path, "--no-config", "--version")))
-    required = ".".join(map(str, program.min_version))
-    if version is None or version < program.min_version:
-        found = ".".join(map(str, version)) if version else "an unknown version"
-        raise InstallerError(
-            f"{path} is {found}; this profile needs {program.command} {required} "
-            "or newer"
-        )
-    if program.check_contains and program.check_contains not in run(
-        (path, "--no-config", *program.check_args)
-    ):
-        raise InstallerError(
-            f"{path} was built without {program.check_contains!r} support, which "
-            "this profile needs"
-        )
-    return path, ".".join(map(str, version))
-
-
-def check_gpu(
-    gpu: GpuRequirement,
-    *,
-    run: Callable[[Sequence[str]], str] = _run_output,
-    which: Callable[[str], str | None] = shutil.which,
-) -> str:
-    """Return the name of a graphics card meeting the requirement, or raise."""
-    advice = "choose another profile"
-    tool = which("nvidia-smi")
-    if tool is None:
-        raise InstallerError(
-            f"this profile needs {gpu.requirement}, but no NVIDIA driver was "
-            f"found; {advice}"
-        )
-    output = run((tool, "--query-gpu=name", "--format=csv,noheader"))
-    names = [line.strip() for line in output.splitlines() if line.strip()]
-    for name in names:
-        if re.search(gpu.matches, name):
-            return name
-    found = ", ".join(names) or "no GPU"
-    raise InstallerError(
-        f"this profile needs {gpu.requirement}, but found {found}; {advice}"
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,84 +323,6 @@ class Installer:
     @staticmethod
     def rollback(install_dir: str | Path) -> None:
         rollback_installation(Path(install_dir).resolve())
-
-
-def promote_staging(staging: Path, target: Path) -> Path | None:
-    """Promote *staging* and retain exactly one sibling ``.previous`` tree."""
-    if not staging.is_dir():
-        raise PromotionError(f"staging directory does not exist: {staging}")
-    if staging.parent.resolve() != target.parent.resolve():
-        raise PromotionError("staging and installation directories must be siblings")
-    previous = target.with_name(f"{target.name}.previous")
-    stale: Path | None = None
-    target_moved = False
-    try:
-        if target.exists():
-            if previous.exists():
-                stale = previous.with_name(f".{previous.name}.stale-{uuid.uuid4().hex}")
-                previous.rename(stale)
-            target.rename(previous)
-            target_moved = True
-        staging.rename(target)
-    except OSError as exc:
-        try:
-            if target_moved and previous.exists() and not target.exists():
-                previous.rename(target)
-            if stale is not None and stale.exists() and not previous.exists():
-                stale.rename(previous)
-        except OSError as recovery_exc:
-            raise PromotionError(
-                f"promotion failed ({exc}) and recovery failed ({recovery_exc})"
-            ) from recovery_exc
-        raise PromotionError(f"could not promote staged installation: {exc}") from exc
-    if stale is not None and stale.exists():
-        # Promotion is already complete. A locked file in an older backup must
-        # not turn a successful install into a reported failure.
-        shutil.rmtree(stale, ignore_errors=True)
-    return previous if target_moved else None
-
-
-def rollback_installation(target: Path) -> None:
-    """Atomically swap the current and previous installation trees."""
-    previous = target.with_name(f"{target.name}.previous")
-    if not previous.is_dir():
-        raise PromotionError(f"no previous installation exists at {previous}")
-    if not target.exists():
-        try:
-            previous.rename(target)
-            return
-        except OSError as exc:
-            raise PromotionError(
-                f"could not restore previous installation: {exc}"
-            ) from exc
-    temporary = target.with_name(f".{target.name}.rollback-{uuid.uuid4().hex}")
-    try:
-        target.rename(temporary)
-    except OSError as exc:
-        raise PromotionError(f"could not move the current installation: {exc}") from exc
-    try:
-        previous.rename(target)
-    except OSError as exc:
-        try:
-            temporary.rename(target)
-        except OSError as recovery_exc:
-            raise PromotionError(
-                f"rollback failed ({exc}) and recovery failed ({recovery_exc})"
-            ) from recovery_exc
-        raise PromotionError(f"could not restore previous installation: {exc}") from exc
-    try:
-        temporary.rename(previous)
-    except OSError as exc:
-        try:
-            target.rename(previous)
-            temporary.rename(target)
-        except OSError as recovery_exc:
-            raise PromotionError(
-                f"rollback swap failed ({exc}) and recovery failed ({recovery_exc})"
-            ) from recovery_exc
-        raise PromotionError(
-            f"could not retain the replaced installation: {exc}"
-        ) from exc
 
 
 def _inside(root: Path, relative: str) -> Path:

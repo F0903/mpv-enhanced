@@ -13,7 +13,7 @@ from mpv_enhanced.benchmark import (
 )
 from mpv_enhanced.cli import main
 from mpv_enhanced.downloads import bar
-from mpv_enhanced.installer import INSTALL_INFO
+from mpv_enhanced.install.installer import INSTALL_INFO
 from mpv_enhanced.platforms import PlatformInfo
 from mpv_enhanced.settings import SETTINGS, load_settings, save_settings
 

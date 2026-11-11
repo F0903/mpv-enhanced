@@ -5,13 +5,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from mpv_enhanced import VERSION
-from mpv_enhanced.doctor import run_doctor
-from mpv_enhanced.manifest import Manifest
-from mpv_enhanced.platforms import PlatformInfo
-from mpv_enhanced.receipt import (
+from mpv_enhanced.install.doctor import run_doctor
+from mpv_enhanced.install.receipt import (
     InstallationReceipt,
     InstalledComponent,
 )
+from mpv_enhanced.manifest import Manifest
+from mpv_enhanced.platforms import PlatformInfo
 
 MODEL = b"locked-model"
 
@@ -260,7 +260,7 @@ class DoctorTests(unittest.TestCase):
             source = prepare_source(Path(temporary))
             with (
                 patch.dict("os.environ", {}, clear=True),
-                patch("mpv_enhanced.doctor.shutil.which", return_value=None),
+                patch("mpv_enhanced.install.doctor.shutil.which", return_value=None),
             ):
                 checks = run_doctor(
                     test_manifest(),
@@ -282,7 +282,7 @@ class DoctorTests(unittest.TestCase):
                 install, "core", ["system-mpv", "portable-config"], "linux-x86_64"
             )
             with patch(
-                "mpv_enhanced.doctor.check_system_program",
+                "mpv_enhanced.install.doctor.check_system_program",
                 return_value=("/usr/bin/mpv", "0.42.0"),
             ):
                 checks = run_doctor(

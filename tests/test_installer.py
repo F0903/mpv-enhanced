@@ -12,16 +12,15 @@ from mpv_enhanced.errors import (
     InstallerError,
     OfflineRuntimeUnsupportedError,
 )
-from mpv_enhanced.installer import (
+from mpv_enhanced.install.installer import (
     DEFAULT_PRESERVED_PATHS,
     INSTALL_INFO,
     Installer,
-    check_gpu,
-    check_system_program,
 )
+from mpv_enhanced.install.receipt import InstallationReceipt
+from mpv_enhanced.install.system import check_gpu, check_system_program
 from mpv_enhanced.manifest import GpuRequirement, Manifest, SystemProgram
 from mpv_enhanced.platforms import PlatformInfo
-from mpv_enhanced.receipt import InstallationReceipt
 
 
 def local_manifest(path: str = "portable_config") -> Manifest:
@@ -498,7 +497,7 @@ class TransactionalInstallerTests(unittest.TestCase):
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         os.link(source, destination)
 
-                    with patch("mpv_enhanced.installer._copy_local", hardlink):
+                    with patch("mpv_enhanced.install.installer._copy_local", hardlink):
                         installer.install("rife", target)
                     self.assertEqual(
                         (target / "models" / "model.pkl").read_bytes(), model

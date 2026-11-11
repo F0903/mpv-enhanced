@@ -11,7 +11,7 @@ from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 
-from .installer import INSTALL_INFO
+from .install.installer import INSTALL_INFO
 from .manifest import InterpolationOptions
 from .platforms import PlatformInfo
 from .settings import NO_METHOD

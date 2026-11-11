@@ -7,14 +7,14 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import VERSION
-from .downloads import sha256_file
-from .errors import InstallerError
-from .installer import check_gpu, check_system_program
-from .manifest import Component, Manifest, ResolvedProfile
-from .platforms import PlatformInfo
+from .. import VERSION
+from ..downloads import sha256_file
+from ..errors import InstallerError
+from ..manifest import Component, Manifest, ResolvedProfile
+from ..platforms import PlatformInfo
 from .receipt import RECEIPT_FILENAME, InstallationReceipt
 from .runtime import VSSCRIPT_DLL
+from .system import check_gpu, check_system_program
 
 
 @dataclass(frozen=True, slots=True)

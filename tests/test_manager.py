@@ -13,6 +13,7 @@ from unittest.mock import patch
 from mpv_enhanced import VERSION
 from mpv_enhanced.cli import main
 from mpv_enhanced.errors import InstallerError
+from mpv_enhanced.install.receipt import InstallationReceipt, InstalledComponent
 from mpv_enhanced.manager import (
     Layout,
     link_version,
@@ -23,7 +24,6 @@ from mpv_enhanced.manager import (
     use,
 )
 from mpv_enhanced.platforms import PlatformInfo
-from mpv_enhanced.receipt import InstallationReceipt, InstalledComponent
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = PlatformInfo("windows", "x86_64")

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .errors import InstallerError
+from ..errors import InstallerError
 
 RECEIPT_FILENAME = ".mpv-enhanced-receipt.toml"
 

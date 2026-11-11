@@ -15,10 +15,11 @@ from typing import TextIO
 
 from . import VERSION
 from .benchmark import install_choices, run_benchmark, suggest_targets
-from .doctor import run_doctor
 from .downloads import ArtifactCache, Downloader, bar, download_url
 from .errors import InstallerError
-from .installer import Installer, check_gpu, check_system_program
+from .install.doctor import run_doctor
+from .install.installer import Installer
+from .install.system import check_gpu, check_system_program
 from .manager import Layout, is_in_use, rollback, update, use
 from .manifest import Manifest
 from .platforms import PlatformInfo, running_in_wsl

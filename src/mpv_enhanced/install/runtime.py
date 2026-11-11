@@ -10,9 +10,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import RuntimeSetupError
-from .manifest import UvRuntime
-from .platforms import PlatformInfo
+from ..errors import RuntimeSetupError
+from ..manifest import UvRuntime
+from ..platforms import PlatformInfo
 
 
 @dataclass(frozen=True, slots=True)

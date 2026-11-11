@@ -19,9 +19,9 @@ from . import VERSION
 from .archives import extract_archive
 from .downloads import Downloader, download_url, sha256_file
 from .errors import InstallerError
+from .install.receipt import RECEIPT_FILENAME, InstallationReceipt
 from .manifest import parse_version
 from .platforms import PlatformInfo
-from .receipt import RECEIPT_FILENAME, InstallationReceipt
 
 KEPT_VERSIONS = 2
 LOADER_CONFIG = Path("/etc/ld.so.conf.d/mpv-enhanced.conf")
