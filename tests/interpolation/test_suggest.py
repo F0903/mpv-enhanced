@@ -1,12 +1,11 @@
 import itertools
 import unittest
-from pathlib import Path
 
 from mpv_enhanced.interpolation.benchmark import suggest_targets
 from mpv_enhanced.manifest import Manifest
 from tests.lua_runtime import load, to_lua, to_py
+from tests.support import ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
 OPTIONS = Manifest.load(ROOT / "manifest.toml").interpolation
 # (long edge of the resolution as measured, height) for each level.
 LEVELS = [(1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)]

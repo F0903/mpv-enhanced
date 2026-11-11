@@ -5,7 +5,8 @@ import unittest
 from fractions import Fraction
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.support import ROOT
+
 sys.path.insert(0, str(ROOT / "portable_config"))
 
 from vs_script.choice import choice_settings, parse_user_data

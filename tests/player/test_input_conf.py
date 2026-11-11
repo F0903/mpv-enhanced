@@ -1,7 +1,8 @@
 import unittest
-from pathlib import Path
 
-INPUT_CONF = Path(__file__).resolve().parents[1] / "portable_config" / "input.conf"
+from tests.support import ROOT
+
+INPUT_CONF = ROOT / "portable_config" / "input.conf"
 
 
 class InputConfTests(unittest.TestCase):

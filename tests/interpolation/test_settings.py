@@ -15,8 +15,7 @@ from mpv_enhanced.interpolation.settings import (
     set_targets,
 )
 from mpv_enhanced.manifest import Manifest
-
-ROOT = Path(__file__).resolve().parents[1]
+from tests.support import ROOT, Terminal
 
 
 def target(method: str) -> dict[str, object]:
@@ -27,11 +26,6 @@ def target(method: str) -> dict[str, object]:
         "method": method,
         "multiplier": 2,
     }
-
-
-class Terminal(StringIO):
-    def isatty(self) -> bool:
-        return True
 
 
 class SettingsTestCase(unittest.TestCase):

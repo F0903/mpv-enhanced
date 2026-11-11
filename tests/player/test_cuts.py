@@ -1,10 +1,10 @@
 import sys
 import unittest
-from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.support import ROOT
+
 sys.path.insert(0, str(ROOT / "portable_config"))
 
 from vs_script.cuts import is_cut, pair_score
