@@ -456,7 +456,9 @@ class TransactionalInstallerTests(unittest.TestCase):
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         os.link(source, destination)
 
-                    with patch("mpv_enhanced.install.installer._copy_local", hardlink):
+                    with patch(
+                        "mpv_enhanced.install.component_stager._copy_local", hardlink
+                    ):
                         installer.install("rife", target)
                     self.assertEqual(
                         (target / "models" / "model.pkl").read_bytes(), model
