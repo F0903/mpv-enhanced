@@ -9,7 +9,13 @@ from types import MappingProxyType
 from typing import Any
 
 from ..errors import ManifestError
-from .fields import _integer, _platforms, _string, _string_list, _table
+from .fields import (
+    read_integer,
+    read_platforms,
+    read_string,
+    read_string_list,
+    read_table,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,25 +44,25 @@ class Method:
 _CHOICE_ID = re.compile(r"[a-z0-9][a-z0-9.-]*\Z")
 
 
-def _with_inherited_method(
+def with_inherited_method(
     name: str,
     methods: Mapping[str, Any],
 ) -> Mapping[str, Any]:
     """Apply a method's one-level ``extends``: a child adds to its parent's lists."""
-    table = _table(methods[name], f"methods.{name}")
+    table = read_table(methods[name], f"methods.{name}")
     parent = table.get("extends")
     if parent is None:
         return table
     if parent not in methods:
         raise ManifestError(f"method {name!r} extends unknown method {parent!r}")
-    inherited = _table(methods[parent], f"methods.{parent}")
+    inherited = read_table(methods[parent], f"methods.{parent}")
     merged = {"os": inherited.get("os"), **table}
     for key in ("components", "extras", "choices"):
         merged[key] = [*inherited.get(key, []), *table.get(key, [])]
     return merged
 
 
-def _parse_method(name: str, data: Mapping[str, Any]) -> Method:
+def parse_method(name: str, data: Mapping[str, Any]) -> Method:
     label = f"methods.{name}"
     preselect = data.get("preselect", True)
     if not isinstance(preselect, bool):
@@ -66,10 +72,10 @@ def _parse_method(name: str, data: Mapping[str, Any]) -> Method:
         raise ManifestError(f"{label}.choices must list at least one choice")
     return Method(
         name=name,
-        description=_string(data.get("description"), f"{label}.description"),
-        components=_string_list(data.get("components"), f"{label}.components"),
-        extras=_string_list(data.get("extras"), f"{label}.extras"),
-        platforms=_platforms(data, label),
+        description=read_string(data.get("description"), f"{label}.description"),
+        components=read_string_list(data.get("components"), f"{label}.components"),
+        extras=read_string_list(data.get("extras"), f"{label}.extras"),
+        platforms=read_platforms(data, label),
         choices=tuple(
             _parse_choice(item, f"{label}.choices[{index}]")
             for index, item in enumerate(raw_choices)
@@ -79,16 +85,16 @@ def _parse_method(name: str, data: Mapping[str, Any]) -> Method:
 
 
 def _parse_choice(value: object, label: str) -> MethodChoice:
-    data = _table(value, label)
-    identifier = _string(data.get("id"), f"{label}.id")
+    data = read_table(value, label)
+    identifier = read_string(data.get("id"), f"{label}.id")
     # The id is passed through mpv's filter options, and "none" is reserved.
     if not _CHOICE_ID.fullmatch(identifier) or identifier == "none":
         raise ManifestError(f"{label}.id is not a usable choice id: {identifier!r}")
     return MethodChoice(
         id=identifier,
-        title=_string(data.get("title"), f"{label}.title"),
-        rank=_integer(data.get("rank"), f"{label}.rank"),
+        title=read_string(data.get("title"), f"{label}.title"),
+        rank=read_integer(data.get("rank"), f"{label}.rank"),
         settings=MappingProxyType(
-            dict(_table(data.get("settings"), f"{label}.settings"))
+            dict(read_table(data.get("settings"), f"{label}.settings"))
         ),
     )

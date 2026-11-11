@@ -9,7 +9,7 @@ from ..platforms import PlatformInfo
 from ..versions.layout import Layout
 
 
-def _status(layout: Layout, platform: PlatformInfo, output: TextIO) -> int:
+def status(layout: Layout, platform: PlatformInfo, output: TextIO) -> int:
     active = layout.active()
     if active is None:
         print("Nothing is installed yet. Run mpve to install.", file=output)
@@ -23,7 +23,7 @@ def _status(layout: Layout, platform: PlatformInfo, output: TextIO) -> int:
     return 0
 
 
-def _manager_menu(
+def manager_menu(
     layout: Layout,
     stdin: TextIO,
     stdout: TextIO,

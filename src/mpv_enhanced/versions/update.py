@@ -17,7 +17,7 @@ from .. import VERSION
 from ..archives import extract_archive
 from ..downloads import Downloader, download_url, sha256_file
 from ..errors import InstallerError
-from .layout import Layout, _version_key
+from .layout import Layout, version_key
 
 
 def _repository() -> str:
@@ -73,7 +73,7 @@ def update(
 
     release = fetch(repository())
     version = str(release["tag_name"]).removeprefix("v")
-    if _version_key(version) <= _version_key(active):
+    if version_key(version) <= version_key(active):
         return None
 
     workspace = layout.live / f".update-{uuid.uuid4().hex}"

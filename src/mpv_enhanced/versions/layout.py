@@ -13,7 +13,7 @@ from ..errors import InstallerError
 from ..install.receipt import RECEIPT_FILENAME, InstallationReceipt
 from ..manifest import parse_version
 from ..platforms import PlatformInfo
-from .posix import _config_link, _is_ours, link_version
+from .posix import config_link, is_ours, link_version
 from .windows import set_start_menu_shortcut, set_user_path
 
 KEPT_VERSIONS = 2
@@ -28,7 +28,7 @@ NOT_RELEASE_FILES = (
 )
 
 
-def _version_key(version: str) -> tuple[int, ...]:
+def version_key(version: str) -> tuple[int, ...]:
     return parse_version(version) or ()
 
 
@@ -87,7 +87,7 @@ class Layout:
         if not self.live.is_dir():
             return []
         found = [item.name for item in self.live.iterdir() if (item / "app").is_dir()]
-        return sorted(found, key=_version_key, reverse=True)
+        return sorted(found, key=version_key, reverse=True)
 
     def previous(self) -> str | None:
         """The newest installed version other than the active one."""
@@ -130,7 +130,7 @@ class Layout:
     def is_in_use(self) -> bool:
         """Whether ``mpve use`` has already pointed this system at an installed version."""
         if os.name != "nt":
-            return _is_ours(_config_link(Path.home()), self)
+            return is_ours(config_link(Path.home()), self)
         found = shutil.which("mpv")
         return found is not None and Path(found).is_relative_to(self.live)
 

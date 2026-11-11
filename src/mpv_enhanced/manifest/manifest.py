@@ -11,11 +11,11 @@ from typing import Any
 
 from ..errors import ManifestError, UnsupportedPlatformError
 from ..platforms import PlatformInfo
-from .component import Component, _parse_component, _with_inherited_fields
-from .fields import _table
-from .interpolation_options import InterpolationOptions, _parse_options
-from .method import Method, MethodChoice, _parse_method, _with_inherited_method
-from .profile import Profile, ResolvedProfile, _parse_profile
+from .component import Component, parse_component, with_inherited_fields
+from .fields import read_table
+from .interpolation_options import InterpolationOptions, parse_options
+from .method import Method, MethodChoice, parse_method, with_inherited_method
+from .profile import Profile, ResolvedProfile, parse_profile
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,16 +47,16 @@ class Manifest:
         python_version: str | None = None,
     ) -> Manifest:
         _validate_schema_version(data)
-        raw_components = _table(data.get("components"), "components")
-        raw_profiles = _table(data.get("profiles"), "profiles")
+        raw_components = read_table(data.get("components"), "components")
+        raw_profiles = read_table(data.get("profiles"), "profiles")
         components = {
-            name: _parse_component(
-                name, _with_inherited_fields(name, raw_components), python_version
+            name: parse_component(
+                name, with_inherited_fields(name, raw_components), python_version
             )
             for name in raw_components
         }
         profiles = {
-            name: _parse_profile(name, _table(table, f"profiles.{name}"))
+            name: parse_profile(name, read_table(table, f"profiles.{name}"))
             for name, table in raw_profiles.items()
         }
         if not components:
@@ -66,9 +66,9 @@ class Manifest:
         default_profile = data.get("default_profile")
         if default_profile is not None and default_profile not in profiles:
             raise ManifestError(f"unknown default profile {default_profile!r}")
-        raw_methods = _table(data.get("methods", {}), "methods")
+        raw_methods = read_table(data.get("methods", {}), "methods")
         methods = {
-            name: _parse_method(name, _with_inherited_method(name, raw_methods))
+            name: parse_method(name, with_inherited_method(name, raw_methods))
             for name in raw_methods
         }
         raw_options = data.get("interpolation")
@@ -77,7 +77,7 @@ class Manifest:
             profiles=MappingProxyType(profiles),
             default_profile=default_profile,
             methods=MappingProxyType(methods),
-            interpolation=_parse_options(raw_options) if raw_options else None,
+            interpolation=parse_options(raw_options) if raw_options else None,
         )
         # Fail before touching an installation if any profile or method has an
         # unknown parent/component or an inheritance cycle.

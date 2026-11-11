@@ -13,11 +13,11 @@ class UvRuntime:
     extras: tuple[str, ...]
 
 
-_RUNTIME_ENVIRONMENT = "runtime/venv"
+RUNTIME_ENVIRONMENT = "runtime/venv"
 
 
-def _site_packages(system: str, python_version: str) -> str:
+def site_packages(system: str, python_version: str) -> str:
     if system == "windows":
-        return f"{_RUNTIME_ENVIRONMENT}/Lib/site-packages"
+        return f"{RUNTIME_ENVIRONMENT}/Lib/site-packages"
     major_minor = ".".join(python_version.split(".")[:2])
-    return f"{_RUNTIME_ENVIRONMENT}/lib/python{major_minor}/site-packages"
+    return f"{RUNTIME_ENVIRONMENT}/lib/python{major_minor}/site-packages"

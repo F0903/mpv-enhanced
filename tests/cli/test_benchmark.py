@@ -160,12 +160,12 @@ class InstallOfferTests(CommandLineTests):
     def finish(self, typed, **fields):
         from types import SimpleNamespace
 
-        from mpv_enhanced.cli.benchmark import _finish_interpolation
+        from mpv_enhanced.cli.benchmark import finish_interpolation
         from mpv_enhanced.manifest import Manifest
 
         output = StringIO()
         with patch("mpv_enhanced.platforms.PlatformInfo.detect", return_value=WINDOWS):
-            _finish_interpolation(
+            finish_interpolation(
                 SimpleNamespace(**{"yes": False, "command": "install", **fields}),
                 self.app,
                 Manifest.load(ROOT / "manifest.toml"),

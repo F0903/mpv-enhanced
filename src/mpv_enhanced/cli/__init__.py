@@ -13,10 +13,10 @@ from ..manifest import Manifest
 from ..platforms import PlatformInfo
 from ..versions.layout import Layout
 from ..versions.update import update
-from .benchmark import _benchmark_command
-from .choices import _list_profiles
-from .install import _install_command
-from .manage import _manager_menu, _status
+from .benchmark import benchmark_command
+from .choices import list_profiles
+from .install import install_command
+from .manage import manager_menu, status
 from .parser import build_parser
 
 
@@ -36,7 +36,7 @@ def main(
         layout = Layout.from_environment()
         arguments = list(sys.argv[1:] if argv is None else argv)
         if not arguments:
-            chosen = _manager_menu(layout, stdin, stdout)
+            chosen = manager_menu(layout, stdin, stdout)
             if chosen is None:
                 return 0
             arguments = chosen
@@ -49,7 +49,7 @@ def main(
             else PlatformInfo.detect()
         )
         if args.command == "list-profiles":
-            return _list_profiles(manifest, platform, stdout)
+            return list_profiles(manifest, platform, stdout)
         if args.command == "doctor":
             checks = run_doctor(
                 manifest,
@@ -63,9 +63,9 @@ def main(
                 print(f"[{marker}] {check.name}: {check.detail}", file=stdout)
             return 0 if all(item.ok for item in checks) else 1
         if args.command == "status":
-            return _status(layout, platform, stdout)
+            return status(layout, platform, stdout)
         if args.command == "benchmark":
-            return _benchmark_command(args, manifest, platform, layout, stdin, stdout)
+            return benchmark_command(args, manifest, platform, layout, stdin, stdout)
         if args.command == "use":
             for message in layout.use(args.version, platform):
                 print(message, file=stdout)
@@ -81,7 +81,7 @@ def main(
             )
             return 0
         if args.command in ("install", "profile"):
-            return _install_command(
+            return install_command(
                 args,
                 manifest,
                 platform,

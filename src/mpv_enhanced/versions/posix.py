@@ -18,12 +18,12 @@ if TYPE_CHECKING:
 LOADER_CONFIG = Path("/etc/ld.so.conf.d/mpv-enhanced.conf")
 
 
-def _config_link(home: Path) -> Path:
+def config_link(home: Path) -> Path:
     """Where mpv looks for its configuration on Linux and macOS."""
     return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "mpv"
 
 
-def _is_ours(link: Path, layout: Layout) -> bool:
+def is_ours(link: Path, layout: Layout) -> bool:
     return link.is_symlink() and Path(os.readlink(link)).is_relative_to(layout.root)
 
 
@@ -64,8 +64,8 @@ def link_version(
     With ``only_if_present``, does nothing until ``mpve use`` has set this up.
     """
     app = layout.app(version)
-    config = _config_link(home)
-    if only_if_present and not _is_ours(config, layout):
+    config = config_link(home)
+    if only_if_present and not is_ours(config, layout):
         return
     links = {
         config: app / "portable_config",
@@ -76,7 +76,7 @@ def link_version(
             app / "mpv.app" / "Contents" / "MacOS" / "mpv"
         )
     for link in links:
-        if (link.exists() or link.is_symlink()) and not _is_ours(link, layout):
+        if (link.exists() or link.is_symlink()) and not is_ours(link, layout):
             raise InstallerError(f"{link} already exists; move it away first")
     pattern = "runtime/*/lib/python*/site-packages/vapoursynth/libvsscript.so"
     if library := next(app.glob(pattern), None):

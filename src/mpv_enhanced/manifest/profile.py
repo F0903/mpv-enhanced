@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .component import Component
-from .fields import _platforms, _string, _string_list
+from .fields import read_platforms, read_string, read_string_list
 from .method import MethodChoice
 
 
@@ -30,13 +30,15 @@ class ResolvedProfile:
     choices: tuple[MethodChoice, ...] = ()
 
 
-def _parse_profile(name: str, data: Mapping[str, Any]) -> Profile:
+def parse_profile(name: str, data: Mapping[str, Any]) -> Profile:
     return Profile(
         name=name,
-        description=_string(
+        description=read_string(
             data.get("description"), f"profiles.{name}.description", default=name
         ),
-        components=_string_list(data.get("components"), f"profiles.{name}.components"),
-        extends=_string_list(data.get("extends"), f"profiles.{name}.extends"),
-        platforms=_platforms(data, f"profiles.{name}"),
+        components=read_string_list(
+            data.get("components"), f"profiles.{name}.components"
+        ),
+        extends=read_string_list(data.get("extends"), f"profiles.{name}.extends"),
+        platforms=read_platforms(data, f"profiles.{name}"),
     )

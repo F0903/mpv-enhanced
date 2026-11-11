@@ -46,7 +46,7 @@ class ComponentStager:
         if component.kind == "local":
             assert component.path is not None
             source = self._local_source(component.path, component.name)
-            destination = _inside(staging, component.destination)
+            destination = inside(staging, component.destination)
             _copy_local(source, destination)
             return InstalledComponent(
                 name=component.name,
@@ -73,7 +73,7 @@ class ComponentStager:
         if component.kind == "uv-runtime":
             assert component.runtime is not None
             source = self._local_source(component.runtime.project, component.name)
-            destination = _inside(staging, component.destination)
+            destination = inside(staging, component.destination)
             _copy_local(source, destination)
             self.runtime_builder.build(
                 component.runtime,
@@ -92,7 +92,7 @@ class ComponentStager:
 
         artifact = component.artifact_for(self.platform)
         cached = self.cache.fetch(artifact, offline=offline)
-        destination = _inside(staging, artifact.destination)
+        destination = inside(staging, artifact.destination)
         if artifact.archive == "none":
             # vsrife's wheel ships 0-byte model placeholders; only those may be
             # replaced, so a real collision between components still fails.
@@ -142,7 +142,7 @@ class ComponentStager:
         return source
 
 
-def _inside(root: Path, relative: str) -> Path:
+def inside(root: Path, relative: str) -> Path:
     candidate = root.joinpath(*relative.split("/"))
     try:
         candidate.resolve(strict=False).relative_to(root.resolve())

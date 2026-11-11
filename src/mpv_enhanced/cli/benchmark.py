@@ -112,7 +112,7 @@ def _offer_benchmark(
     return _benchmark_and_save(app, manifest, PlatformInfo.detect(), stdin, stdout)
 
 
-def _benchmark_command(
+def benchmark_command(
     args: argparse.Namespace,
     manifest: Manifest,
     platform: PlatformInfo,
@@ -140,7 +140,7 @@ def _benchmark_command(
     return 0
 
 
-def _finish_interpolation(
+def finish_interpolation(
     args: argparse.Namespace,
     app: Path,
     manifest: Manifest,

@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mpv_enhanced.cli.choices import _choose_methods, _choose_optional
+from mpv_enhanced.cli.choices import choose_methods, choose_optional
 from mpv_enhanced.cli.install import _setup_answers
 from mpv_enhanced.errors import InstallerError
 from mpv_enhanced.manifest import Manifest
@@ -39,7 +39,7 @@ class OptionalScreenTests(unittest.TestCase):
             },
         )
         output = StringIO()
-        chosen = _choose_optional(
+        chosen = choose_optional(
             SimpleNamespace(
                 optional=None, install_dir=None, yes=False, command="install"
             ),
@@ -109,7 +109,7 @@ class MethodsScreenTests(unittest.TestCase):
             "mpv_enhanced.cli.choices._unavailable_reason",
             side_effect=lambda _m, _n, _p, methods=(): reasons.get(methods[0]),
         ):
-            chosen = _choose_methods(
+            chosen = choose_methods(
                 SimpleNamespace(
                     methods=flag, install_dir=None, yes=False, command=command
                 ),

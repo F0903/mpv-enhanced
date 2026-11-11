@@ -21,7 +21,7 @@ from ..manifest import (
     validate_relative_path,
 )
 from ..platforms import PlatformInfo
-from .component_stager import ComponentStager, _inside
+from .component_stager import ComponentStager, inside
 from .receipt import InstallationReceipt, InstalledComponent
 from .runtime import UvRuntimeBuilder
 from .staging import promote_staging, rollback_installation
@@ -175,7 +175,7 @@ class Installer:
                 str(target),
             ],
         }
-        destination = _inside(staging, INSTALL_INFO)
+        destination = inside(staging, INSTALL_INFO)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(
             json.dumps(info, indent=2), encoding="utf-8", newline="\n"
@@ -191,7 +191,7 @@ class Installer:
             setup = component.setup
             if setup is None:
                 continue
-            path = _inside(staging, setup.file)
+            path = inside(staging, setup.file)
             if component.name in answers:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 text = setup.line.format(answer=answers[component.name])
@@ -204,8 +204,8 @@ class Installer:
 
     def _preserve_user_files(self, current: Path, staging: Path) -> None:
         for relative in self.preserved_paths:
-            old_path = _inside(current, relative)
-            new_path = _inside(staging, relative)
+            old_path = inside(current, relative)
+            new_path = inside(staging, relative)
             if old_path.is_dir() and not old_path.is_symlink():
                 shutil.copytree(old_path, new_path, symlinks=True, dirs_exist_ok=True)
                 continue

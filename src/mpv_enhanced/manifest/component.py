@@ -9,18 +9,18 @@ from typing import Any
 
 from ..errors import ManifestError, UnsupportedPlatformError
 from ..platforms import PlatformInfo
-from .artifact import Artifact, _parse_artifacts
+from .artifact import Artifact, parse_artifacts
 from .fields import (
-    _expand,
-    _pattern,
-    _platforms,
-    _string,
-    _string_list,
-    _table,
+    expand,
     parse_version,
+    read_pattern,
+    read_platforms,
+    read_string,
+    read_string_list,
+    read_table,
     validate_relative_path,
 )
-from .uv_runtime import _RUNTIME_ENVIRONMENT, UvRuntime
+from .uv_runtime import RUNTIME_ENVIRONMENT, UvRuntime
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,26 +82,26 @@ class Component:
         )
 
 
-def _with_inherited_fields(
+def with_inherited_fields(
     name: str,
     components: Mapping[str, Any],
 ) -> Mapping[str, Any]:
     """Apply a component's one-level ``extends``."""
-    table = _table(components[name], f"components.{name}")
+    table = read_table(components[name], f"components.{name}")
     parent = table.get("extends")
     if parent is None:
         return table
     if parent not in components:
         raise ManifestError(f"component {name!r} extends unknown component {parent!r}")
-    return {**_table(components[parent], f"components.{parent}"), **table}
+    return {**read_table(components[parent], f"components.{parent}"), **table}
 
 
-def _parse_component(
+def parse_component(
     name: str,
     data: Mapping[str, Any],
     python_version: str | None,
 ) -> Component:
-    kind = _string(
+    kind = read_string(
         data.get("kind"), f"components.{name}.kind", default="download"
     ).lower()
     if kind not in {"download", "local", "uv-runtime", "system", "gpu"}:
@@ -115,7 +115,7 @@ def _parse_component(
         )
     )
     # Under a download, os.<name>.arch holds artifacts rather than a list.
-    platforms = () if kind == "download" else _platforms(data, f"components.{name}")
+    platforms = () if kind == "download" else read_platforms(data, f"components.{name}")
     if kind == "uv-runtime":
         return _parse_runtime_component(name, version, data, platforms, python_version)
     if kind == "system":
@@ -123,12 +123,14 @@ def _parse_component(
     if kind == "gpu":
         return _parse_gpu_component(name, data, platforms)
     destination = validate_relative_path(
-        _string(data.get("destination"), f"components.{name}.destination", default="."),
+        read_string(
+            data.get("destination"), f"components.{name}.destination", default="."
+        ),
         f"components.{name}.destination",
     )
     if kind == "local":
         source_path = validate_relative_path(
-            _string(data.get("path"), f"components.{name}.path"),
+            read_string(data.get("path"), f"components.{name}.path"),
             f"components.{name}.path",
         )
         return Component(
@@ -141,7 +143,7 @@ def _parse_component(
             platforms=platforms,
         )
 
-    artifacts = _parse_artifacts(name, data, destination, python_version)
+    artifacts = parse_artifacts(name, data, destination, python_version)
     if not artifacts:
         raise ManifestError(f"component {name!r} contains no artifacts")
     optional = data.get("optional", False)
@@ -157,7 +159,7 @@ def _parse_component(
         platforms=tuple(artifacts),
         optional=optional,
         description=(
-            _string(data.get("description"), f"components.{name}.description")
+            read_string(data.get("description"), f"components.{name}.description")
             if optional
             else ""
         ),
@@ -167,18 +169,18 @@ def _parse_component(
 
 def _parse_setup(name: str, value: object) -> ComponentSetup:
     label = f"components.{name}.setup"
-    data = _table(value, label)
-    line = _string(data.get("line"), f"{label}.line")
-    if _expand(line, {"answer": ""}, f"{label}.line") == line:
+    data = read_table(value, label)
+    line = read_string(data.get("line"), f"{label}.line")
+    if expand(line, {"answer": ""}, f"{label}.line") == line:
         raise ManifestError(f"{label}.line must contain {{answer}}")
-    # _string strips, and the line's own newline has to survive.
+    # read_string strips, and the line's own newline has to survive.
     return ComponentSetup(
-        question=_string(data.get("question"), f"{label}.question"),
+        question=read_string(data.get("question"), f"{label}.question"),
         file=validate_relative_path(
-            _string(data.get("file"), f"{label}.file"), f"{label}.file"
+            read_string(data.get("file"), f"{label}.file"), f"{label}.file"
         ),
         line=str(data["line"]),
-        matches=_pattern(data.get("matches"), f"{label}.matches"),
+        matches=read_pattern(data.get("matches"), f"{label}.matches"),
     )
 
 
@@ -189,13 +191,13 @@ def _parse_system_component(
 ) -> Component:
     label = f"components.{name}"
     min_version = parse_version(
-        _string(data.get("min_version"), f"{label}.min_version")
+        read_string(data.get("min_version"), f"{label}.min_version")
     )
     if min_version is None:
         raise ManifestError(f"{label}.min_version must look like 1.2.3")
     check_contains = data.get("check_contains")
     if check_contains is not None:
-        check_contains = _string(check_contains, f"{label}.check_contains")
+        check_contains = read_string(check_contains, f"{label}.check_contains")
     return Component(
         name=name,
         version="system",
@@ -205,9 +207,9 @@ def _parse_system_component(
         artifacts=MappingProxyType({}),
         platforms=platforms,
         system=SystemProgram(
-            command=_string(data.get("command"), f"{label}.command"),
+            command=read_string(data.get("command"), f"{label}.command"),
             min_version=min_version,
-            check_args=_string_list(data.get("check_args"), f"{label}.check_args"),
+            check_args=read_string_list(data.get("check_args"), f"{label}.check_args"),
             check_contains=check_contains,
         ),
     )
@@ -219,7 +221,7 @@ def _parse_gpu_component(
     platforms: tuple[str, ...],
 ) -> Component:
     label = f"components.{name}"
-    matches = _pattern(data.get("matches"), f"{label}.matches")
+    matches = read_pattern(data.get("matches"), f"{label}.matches")
     return Component(
         name=name,
         version="gpu",
@@ -230,7 +232,7 @@ def _parse_gpu_component(
         platforms=platforms,
         gpu=GpuRequirement(
             matches=matches,
-            requirement=_string(data.get("requirement"), f"{label}.requirement"),
+            requirement=read_string(data.get("requirement"), f"{label}.requirement"),
         ),
     )
 
@@ -245,12 +247,12 @@ def _parse_runtime_component(
     if python_version is None:
         raise ManifestError(f"component {name!r} needs a Python version")
     project = validate_relative_path(
-        _string(data.get("project"), f"components.{name}.project"),
+        read_string(data.get("project"), f"components.{name}.project"),
         f"components.{name}.project",
     )
     runtime = UvRuntime(
         project=project,
-        environment=_RUNTIME_ENVIRONMENT,
+        environment=RUNTIME_ENVIRONMENT,
         python_version=python_version,
         extras=(),
     )

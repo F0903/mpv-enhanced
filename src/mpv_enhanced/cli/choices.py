@@ -42,7 +42,7 @@ def _unavailable_reason(
     return None
 
 
-def _require_gpus(
+def require_gpus(
     manifest: Manifest,
     profile_name: str,
     platform: PlatformInfo,
@@ -56,7 +56,7 @@ def _require_gpus(
             check_gpu(component.gpu)
 
 
-def _list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) -> int:
+def list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) -> int:
     for name, profile in manifest.profiles.items():
         reason = _unavailable_reason(manifest, name, platform)
         if reason is None:
@@ -72,7 +72,7 @@ def _list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) -
     return 0
 
 
-def _choose_optional(
+def choose_optional(
     args: argparse.Namespace,
     manifest: Manifest,
     platform: PlatformInfo,
@@ -103,7 +103,7 @@ def _choose_optional(
     return tuple(name for name in names if name in chosen)
 
 
-def _choose_methods(
+def choose_methods(
     args: argparse.Namespace,
     manifest: Manifest,
     platform: PlatformInfo,
@@ -176,7 +176,7 @@ def _tick_screen(
     return selected
 
 
-def _install_profile(
+def install_profile(
     args: argparse.Namespace,
     manifest: Manifest,
     platform: PlatformInfo,

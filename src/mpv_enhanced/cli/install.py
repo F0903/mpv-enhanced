@@ -15,8 +15,8 @@ from ..install.installer import Installer
 from ..manifest import Manifest
 from ..platforms import PlatformInfo, running_in_wsl
 from ..versions.layout import Layout
-from .benchmark import _finish_interpolation
-from .choices import _choose_methods, _choose_optional, _install_profile, _require_gpus
+from .benchmark import finish_interpolation
+from .choices import choose_methods, choose_optional, install_profile, require_gpus
 
 NVIDIA_TENSORRT_SLA_URL = (
     "https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html"
@@ -31,7 +31,7 @@ NVIDIA_LICENSES = {
 }
 
 
-def _install_command(
+def install_command(
     args: argparse.Namespace,
     manifest: Manifest,
     platform: PlatformInfo,
@@ -52,13 +52,13 @@ def _install_command(
             "Windows instead.",
             file=stderr,
         )
-    profile_name = _install_profile(args, manifest, platform, stdin, stdout)
-    methods = _choose_methods(
+    profile_name = install_profile(args, manifest, platform, stdin, stdout)
+    methods = choose_methods(
         args, manifest, platform, layout, profile_name, stdin, stdout
     )
     # Before the licence prompt: no point accepting terms for a GPU that can't run it.
-    _require_gpus(manifest, profile_name, platform, methods)
-    optional = _choose_optional(args, manifest, platform, layout, stdin, stdout)
+    require_gpus(manifest, profile_name, platform, methods)
+    optional = choose_optional(args, manifest, platform, layout, stdin, stdout)
     answers = _setup_answers(args, manifest, optional, layout, stdin, stdout)
     _require_nvidia_license_acceptance(
         args,
@@ -98,9 +98,7 @@ def _install_command(
         # Older versions are the rollback path, so this copy isn't needed.
         if result.previous_dir is not None:
             shutil.rmtree(result.previous_dir, ignore_errors=True)
-        _finish_interpolation(
-            args, result.install_dir, manifest, methods, stdin, stdout
-        )
+        finish_interpolation(args, result.install_dir, manifest, methods, stdin, stdout)
         print(
             f"Start mpv-enhanced with: {layout.player(VERSION, platform)}",
             file=stdout,
@@ -113,7 +111,7 @@ def _install_command(
             f"Previous installation retained at {result.previous_dir}",
             file=stdout,
         )
-    _finish_interpolation(args, result.install_dir, manifest, methods, stdin, stdout)
+    finish_interpolation(args, result.install_dir, manifest, methods, stdin, stdout)
     start = next(
         (
             path

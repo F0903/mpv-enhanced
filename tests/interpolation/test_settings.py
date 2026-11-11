@@ -5,7 +5,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
-from mpv_enhanced.cli.benchmark import _finish_interpolation
+from mpv_enhanced.cli.benchmark import finish_interpolation
 from mpv_enhanced.interpolation.settings import (
     SETTINGS,
     load_settings,
@@ -106,7 +106,7 @@ class StartStateTests(SettingsTestCase):
         **args,
     ) -> str:
         output = StringIO()
-        _finish_interpolation(
+        finish_interpolation(
             SimpleNamespace(**{"yes": False, "command": "install", **args}),
             self.app,
             self.MANIFEST,
