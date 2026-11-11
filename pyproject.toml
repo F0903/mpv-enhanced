@@ -14,6 +14,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    "basedpyright==1.40.2",
     "lupa==2.8",
     "numpy==2.5.2",
     "ruff==0.16.3",
@@ -47,3 +48,29 @@ module-root = "src"
 
 [tool.ruff]
 extend-exclude = ["portable_config"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+# Off because they aren't about types: results such as Path.write_text's count
+# are routinely ignored, and long messages are wrapped as adjacent literals.
+reportUnusedCallResult = false
+reportImplicitStringConcatenation = false
+
+# Tests are held to real type errors only: their helpers and fakes aren't
+# annotated, and the Lua modules they drive have no types at all.
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+extraPaths = [".", "src", "portable_config"]
+reportAny = false
+reportExplicitAny = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportMissingParameterType = false
+reportUnannotatedClassAttribute = false
+reportUninitializedInstanceVariable = false
+reportImplicitOverride = false
+reportPrivateUsage = false
+reportUnusedParameter = false

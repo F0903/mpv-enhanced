@@ -6,9 +6,9 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
 
 from ..errors import ManifestError
+from ..parsed import as_list
 from .fields import (
     read_integer,
     read_platforms,
@@ -46,29 +46,44 @@ _CHOICE_ID = re.compile(r"[a-z0-9][a-z0-9.-]*\Z")
 
 def with_inherited_method(
     name: str,
-    methods: Mapping[str, Any],
-) -> Mapping[str, Any]:
+    methods: Mapping[str, object],
+) -> Mapping[str, object]:
     """Apply a method's one-level ``extends``: a child adds to its parent's lists."""
     table = read_table(methods[name], f"methods.{name}")
     parent = table.get("extends")
     if parent is None:
         return table
-    if parent not in methods:
+    if not isinstance(parent, str) or parent not in methods:
         raise ManifestError(f"method {name!r} extends unknown method {parent!r}")
     inherited = read_table(methods[parent], f"methods.{parent}")
     merged = {"os": inherited.get("os"), **table}
     for key in ("components", "extras", "choices"):
-        merged[key] = [*inherited.get(key, []), *table.get(key, [])]
+        merged[key] = [
+            *_listed(inherited.get(key), f"methods.{parent}.{key}"),
+            *_listed(table.get(key), f"methods.{name}.{key}"),
+        ]
     return merged
 
 
-def parse_method(name: str, data: Mapping[str, Any]) -> Method:
+def _listed(value: object, label: str) -> list[object]:
+    """An array as written, a lone string as its only item, and nothing as empty."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    items = as_list(value)
+    if items is None:
+        raise ManifestError(f"{label} must be an array")
+    return items
+
+
+def parse_method(name: str, data: Mapping[str, object]) -> Method:
     label = f"methods.{name}"
     preselect = data.get("preselect", True)
     if not isinstance(preselect, bool):
         raise ManifestError(f"{label}.preselect must be true or false")
-    raw_choices = data.get("choices")
-    if not isinstance(raw_choices, list) or not raw_choices:
+    raw_choices = as_list(data.get("choices"))
+    if not raw_choices:
         raise ManifestError(f"{label}.choices must list at least one choice")
     return Method(
         name=name,

@@ -9,26 +9,29 @@ import subprocess
 import urllib.error
 import urllib.request
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from http.client import HTTPResponse
 from importlib.metadata import metadata
-from typing import Any
+from typing import cast
 
 from .. import VERSION
 from ..archives import extract_archive
 from ..downloads import Downloader, download_url, sha256_file
 from ..errors import InstallerError
+from ..parsed import as_list, as_table
 from .layout import Layout, version_key
 
 
 def _repository() -> str:
-    for item in metadata("mpv-enhanced").get_all("Project-URL") or []:
+    urls: list[str] = metadata("mpv-enhanced").get_all("Project-URL") or []
+    for item in urls:
         label, _, url = item.partition(",")
         if label.strip() == "Repository":
             return url.strip().removesuffix(".git").split("github.com/", 1)[1]
     raise InstallerError("the installer has no repository URL")
 
 
-def _fetch_latest_release(repository: str) -> dict[str, Any]:
+def _fetch_latest_release(repository: str) -> Mapping[str, object]:
     url = f"https://api.github.com/repos/{repository}/releases/latest"
     request = urllib.request.Request(
         url,
@@ -38,30 +41,37 @@ def _fetch_latest_release(repository: str) -> dict[str, Any]:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return json.load(response)
+        with cast(
+            HTTPResponse, urllib.request.urlopen(request, timeout=60)
+        ) as response:
+            release = as_table(cast(object, json.load(response)))
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise InstallerError("no releases have been published yet") from exc
         raise InstallerError(f"cannot check for updates: {exc}") from exc
     except (OSError, ValueError) as exc:
         raise InstallerError(f"cannot check for updates: {exc}") from exc
+    if release is None:
+        raise InstallerError("cannot check for updates: unexpected reply")
+    return release
 
 
-def _asset_url(release: dict[str, Any], suffix: str) -> tuple[str, str]:
-    for asset in release.get("assets", []):
-        if asset["name"].endswith(suffix):
-            return asset["name"], asset["browser_download_url"]
+def _asset_url(release: Mapping[str, object], suffix: str) -> tuple[str, str]:
+    for item in as_list(release.get("assets")) or []:
+        asset = as_table(item) or {}
+        name, url = asset.get("name"), asset.get("browser_download_url")
+        if isinstance(name, str) and isinstance(url, str) and name.endswith(suffix):
+            return name, url
     raise InstallerError(f"the latest release has no {suffix} file")
 
 
 def update(
     layout: Layout,
     *,
-    fetch: Callable[[str], dict[str, Any]] = _fetch_latest_release,
+    fetch: Callable[[str], Mapping[str, object]] = _fetch_latest_release,
     repository: Callable[[], str] = _repository,
     download: Downloader = download_url,
-    run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    run: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
 ) -> str | None:
     """Install the newest release and return its version, or None if up to date."""
     if layout.is_checkout:

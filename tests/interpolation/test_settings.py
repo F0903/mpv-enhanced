@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
-from types import SimpleNamespace
+from typing import Any
 
+from mpv_enhanced.cli.arguments import Arguments
 from mpv_enhanced.cli.benchmark import finish_interpolation
 from mpv_enhanced.interpolation.settings import (
     SETTINGS,
@@ -15,7 +16,7 @@ from mpv_enhanced.interpolation.settings import (
     set_targets,
 )
 from mpv_enhanced.manifest import Manifest
-from tests.support import ROOT, Terminal
+from tests.support import ROOT, Terminal, saved_settings
 
 
 def target(method: str) -> dict[str, object]:
@@ -45,7 +46,7 @@ class SettingsFileTests(SettingsTestCase):
             },
         )
         reconcile_targets(self.app, ["keep", "other"])
-        saved = load_settings(self.app)
+        saved = saved_settings(self.app)
         self.assertEqual(
             [item["method"] for item in saved["targets"]], ["keep", "none", "keep"]
         )
@@ -61,12 +62,12 @@ class SettingsFileTests(SettingsTestCase):
     def test_reconcile_leaves_oddly_shaped_targets_alone(self) -> None:
         save_settings(self.app, {"targets": {"not": "a list"}})
         reconcile_targets(self.app, ["keep"])
-        self.assertEqual(load_settings(self.app)["targets"], {"not": "a list"})
+        self.assertEqual(saved_settings(self.app)["targets"], {"not": "a list"})
 
     def test_reconcile_with_no_methods_changes_nothing(self) -> None:
         save_settings(self.app, {"targets": [target("old")], "default_method": "old"})
         reconcile_targets(self.app, [])
-        self.assertEqual(load_settings(self.app)["default_method"], "old")
+        self.assertEqual(saved_settings(self.app)["default_method"], "old")
 
     def test_load_returns_none_for_missing_or_malformed(self) -> None:
         self.assertIsNone(load_settings(self.app))
@@ -82,7 +83,7 @@ class SettingsFileTests(SettingsTestCase):
     def test_set_targets_keeps_other_settings(self) -> None:
         save_settings(self.app, {"enabled": True, "fps_cutoff": 30})
         set_targets(self.app, [target("a")])
-        saved = load_settings(self.app)
+        saved = saved_settings(self.app)
         self.assertEqual(saved["fps_cutoff"], 30)
         self.assertEqual(saved["targets"][0]["method"], "a")
 
@@ -105,9 +106,10 @@ class StartStateTests(SettingsTestCase):
         terminal=True,
         **args,
     ) -> str:
+        fields: dict[str, Any] = {"yes": False, "command": "install", **args}
         output = StringIO()
         finish_interpolation(
-            SimpleNamespace(**{"yes": False, "command": "install", **args}),
+            Arguments(**fields),
             self.app,
             self.MANIFEST,
             methods,
@@ -123,29 +125,29 @@ class StartStateTests(SettingsTestCase):
     def test_enter_defaults_to_off_without_benchmark(self) -> None:
         output = self.finish("\n")
         self.assertIn("[on/OFF]", output)
-        self.assertFalse(load_settings(self.app)["enabled"])
+        self.assertFalse(saved_settings(self.app)["enabled"])
 
     def test_enter_defaults_to_on_after_accepted_benchmark(self) -> None:
         output = self.finish("\n", benchmark=True)
         self.assertIn("[ON/off]", output)
-        self.assertTrue(load_settings(self.app)["enabled"])
+        self.assertTrue(saved_settings(self.app)["enabled"])
 
     def test_answer_overrides_the_default(self) -> None:
         self.finish("on\n")
-        self.assertTrue(load_settings(self.app)["enabled"])
+        self.assertTrue(saved_settings(self.app)["enabled"])
 
     def test_unattended_first_install_starts_off_without_asking(self) -> None:
         self.assertEqual(self.finish(terminal=False), "")
-        self.assertFalse(load_settings(self.app)["enabled"])
+        self.assertFalse(saved_settings(self.app)["enabled"])
 
     def test_yes_starts_off_without_asking(self) -> None:
         self.assertEqual(self.finish(yes=True), "")
-        self.assertFalse(load_settings(self.app)["enabled"])
+        self.assertFalse(saved_settings(self.app)["enabled"])
 
     def test_updates_do_not_ask_or_change_the_state(self) -> None:
         save_settings(self.app, {"enabled": True})
         self.assertEqual(self.finish(""), "")
-        self.assertTrue(load_settings(self.app)["enabled"])
+        self.assertTrue(saved_settings(self.app)["enabled"])
 
     def test_no_methods_writes_nothing(self) -> None:
         self.assertEqual(self.finish("", methods=()), "")
@@ -154,7 +156,7 @@ class StartStateTests(SettingsTestCase):
     def test_saved_targets_follow_a_changed_selection(self) -> None:
         save_settings(self.app, {"targets": [target("rife-4.25")]})
         self.finish("")
-        self.assertEqual(load_settings(self.app)["targets"][0]["method"], "rtx-high")
+        self.assertEqual(saved_settings(self.app)["targets"][0]["method"], "rtx-high")
 
 
 if __name__ == "__main__":

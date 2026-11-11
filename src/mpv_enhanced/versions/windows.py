@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from typing import cast
 
 from ..errors import InstallerError
 
@@ -33,7 +34,7 @@ def set_user_path(
         winreg.HKEY_CURRENT_USER, subkey, 0, winreg.KEY_READ | winreg.KEY_WRITE
     ) as key:
         try:
-            value, kind = winreg.QueryValueEx(key, "Path")
+            value, kind = cast("tuple[str, int]", winreg.QueryValueEx(key, "Path"))
         except FileNotFoundError:
             value, kind = "", winreg.REG_EXPAND_SZ
         entries = [entry for entry in value.split(";") if entry]

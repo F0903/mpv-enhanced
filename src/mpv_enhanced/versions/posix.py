@@ -7,13 +7,9 @@ import subprocess
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
 from ..errors import InstallerError
 from ..platforms import PlatformInfo
-
-if TYPE_CHECKING:
-    from .layout import Layout
 
 LOADER_CONFIG = Path("/etc/ld.so.conf.d/mpv-enhanced.conf")
 
@@ -23,8 +19,8 @@ def config_link(home: Path) -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "mpv"
 
 
-def is_ours(link: Path, layout: Layout) -> bool:
-    return link.is_symlink() and Path(os.readlink(link)).is_relative_to(layout.root)
+def is_ours(link: Path, root: Path) -> bool:
+    return link.is_symlink() and Path(os.readlink(link)).is_relative_to(root)
 
 
 def _replace_link(link: Path, target: Path) -> None:
@@ -36,7 +32,9 @@ def _replace_link(link: Path, target: Path) -> None:
     os.replace(temporary, link)
 
 
-def _point_loader_at(folder: Path, run: Callable[..., Any]) -> None:
+def _point_loader_at(
+    folder: Path, run: Callable[..., subprocess.CompletedProcess[bytes]]
+) -> None:
     """Let mpv find libvsscript.so, which it loads by bare name."""
     try:
         if LOADER_CONFIG.read_text("utf-8") == f"{folder}\n":
@@ -51,32 +49,32 @@ def _point_loader_at(folder: Path, run: Callable[..., Any]) -> None:
 
 
 def link_version(
-    layout: Layout,
-    version: str,
+    root: Path,
+    app: Path,
     platform: PlatformInfo,
     home: Path,
     *,
     only_if_present: bool = False,
-    run: Callable[..., Any] = subprocess.run,
+    run: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
 ) -> None:
-    """Point this user's mpv at a version with symlinks, so it needs no launcher.
+    """Point this user's mpv at the version in ``app`` with symlinks, so it needs
+    no launcher. ``root`` is the folder that holds every version.
 
     With ``only_if_present``, does nothing until ``mpve use`` has set this up.
     """
-    app = layout.app(version)
     config = config_link(home)
-    if only_if_present and not is_ours(config, layout):
+    if only_if_present and not is_ours(config, root):
         return
     links = {
         config: app / "portable_config",
-        home / ".local" / "bin" / "mpve": layout.root / "mpve.sh",
+        home / ".local" / "bin" / "mpve": root / "mpve.sh",
     }
     if platform.system == "macos":
         links[home / ".local" / "bin" / "mpv"] = (
             app / "mpv.app" / "Contents" / "MacOS" / "mpv"
         )
     for link in links:
-        if (link.exists() or link.is_symlink()) and not is_ours(link, layout):
+        if (link.exists() or link.is_symlink()) and not is_ours(link, root):
             raise InstallerError(f"{link} already exists; move it away first")
     pattern = "runtime/*/lib/python*/site-packages/vapoursynth/libvsscript.so"
     if library := next(app.glob(pattern), None):

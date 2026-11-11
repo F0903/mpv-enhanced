@@ -3,12 +3,13 @@ import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from mpv_enhanced.cli import main
 from mpv_enhanced.install.installer import INSTALL_INFO
-from mpv_enhanced.interpolation.settings import SETTINGS, load_settings, save_settings
-from tests.support import ROOT, WINDOWS, Terminal
+from mpv_enhanced.interpolation.settings import SETTINGS, save_settings
+from tests.support import ROOT, WINDOWS, Terminal, saved_settings
 
 RTX = {
     "id": "rtx-high",
@@ -72,7 +73,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0, errors)
         self.assertIn("It takes a few minutes", output)
         self.assertIn("Close games", output)
-        self.assertEqual(load_settings(self.app)["targets"][-1]["method"], "rtx-high")
+        self.assertEqual(saved_settings(self.app)["targets"][-1]["method"], "rtx-high")
 
     def test_existing_targets_ask_and_default_to_no(self) -> None:
         save_settings(self.app, {"targets": [{"method": "mine"}]})
@@ -80,12 +81,12 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Replace your existing targets? [y/N]", output)
         self.benchmark.assert_not_called()
-        self.assertEqual(load_settings(self.app)["targets"], [{"method": "mine"}])
+        self.assertEqual(saved_settings(self.app)["targets"], [{"method": "mine"}])
 
     def test_existing_targets_can_be_replaced(self) -> None:
         save_settings(self.app, {"targets": [{"method": "mine"}]})
         self.run_cli(stdin=Terminal("y\n"))
-        self.assertEqual(load_settings(self.app)["targets"][-1]["method"], "rtx-high")
+        self.assertEqual(saved_settings(self.app)["targets"][-1]["method"], "rtx-high")
 
     def test_suggest_to_writes_a_file_and_leaves_settings_alone(self) -> None:
         save_settings(self.app, {"targets": [{"method": "mine"}]})
@@ -93,7 +94,7 @@ class CommandLineTests(unittest.TestCase):
         code, _, errors = self.run_cli("--suggest-to", str(out), stdin=StringIO())
         self.assertEqual(code, 0, errors)
         self.assertEqual(json.loads(out.read_text("utf-8"))[-1]["method"], "rtx-high")
-        self.assertEqual(load_settings(self.app)["targets"], [{"method": "mine"}])
+        self.assertEqual(saved_settings(self.app)["targets"], [{"method": "mine"}])
 
     def test_progress_file_is_written(self) -> None:
         progress = self.root / "progress.txt"
@@ -112,7 +113,7 @@ class CommandLineTests(unittest.TestCase):
         code, _, errors = self.run_cli(stdin=Terminal(""))
         self.assertEqual(code, 2)
         self.assertIn("could not measure", errors)
-        self.assertNotIn("targets", load_settings(self.app))
+        self.assertNotIn("targets", saved_settings(self.app))
 
     def test_a_method_that_could_not_be_measured_is_named(self) -> None:
         self.write_info([RTX, RIFE])
@@ -123,7 +124,7 @@ class CommandLineTests(unittest.TestCase):
         code, output, errors = self.run_cli(stdin=Terminal(""))
         self.assertEqual(code, 0, errors)
         self.assertIn("Could not measure RTX High", output)
-        self.assertEqual(load_settings(self.app)["targets"][-1]["method"], "rife-4.25")
+        self.assertEqual(saved_settings(self.app)["targets"][-1]["method"], "rife-4.25")
 
     def test_a_malformed_settings_file_is_not_overwritten(self) -> None:
         path = self.app / SETTINGS
@@ -141,7 +142,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0, errors)
         self.assertIn("couldn't keep up", output)
         self.assertEqual(
-            [item["method"] for item in load_settings(self.app)["targets"]], ["none"]
+            [item["method"] for item in saved_settings(self.app)["targets"]], ["none"]
         )
 
     def test_benchmark_without_methods_reports_it(self) -> None:
@@ -158,15 +159,15 @@ class CommandLineTests(unittest.TestCase):
 
 class InstallOfferTests(CommandLineTests):
     def finish(self, typed, **fields):
-        from types import SimpleNamespace
-
+        from mpv_enhanced.cli.arguments import Arguments
         from mpv_enhanced.cli.benchmark import finish_interpolation
         from mpv_enhanced.manifest import Manifest
 
+        options: dict[str, Any] = {"yes": False, "command": "install", **fields}
         output = StringIO()
         with patch("mpv_enhanced.platforms.PlatformInfo.detect", return_value=WINDOWS):
             finish_interpolation(
-                SimpleNamespace(**{"yes": False, "command": "install", **fields}),
+                Arguments(**options),
                 self.app,
                 Manifest.load(ROOT / "manifest.toml"),
                 ("rtx",),
@@ -179,12 +180,12 @@ class InstallOfferTests(CommandLineTests):
         output = self.finish("n\n\n")
         self.assertIn("Run the benchmark now? [Y/n]", output)
         self.benchmark.assert_not_called()
-        self.assertFalse(load_settings(self.app)["enabled"])
+        self.assertFalse(saved_settings(self.app)["enabled"])
 
     def test_accepting_the_offer_writes_targets_and_defaults_on(self) -> None:
         output = self.finish("\n\n")
         self.assertIn("[ON/off]", output)
-        settings = load_settings(self.app)
+        settings = saved_settings(self.app)
         self.assertTrue(settings["enabled"])
         self.assertEqual(settings["targets"][-1]["method"], "rtx-high")
 
@@ -194,7 +195,7 @@ class InstallOfferTests(CommandLineTests):
         self.assertIn("could not measure", output)
         self.assertIn("Start with interpolation on or off?", output)
         self.assertIn("[on/OFF]", output)
-        self.assertFalse(load_settings(self.app)["enabled"])
+        self.assertFalse(saved_settings(self.app)["enabled"])
 
     def test_update_never_offers_the_benchmark(self) -> None:
         save_settings(self.app, {"enabled": True})

@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import final
 
 from .. import VERSION
 from ..downloads import ArtifactCache
@@ -49,6 +50,7 @@ class InstallResult:
     receipt: InstallationReceipt
 
 
+@final
 class Installer:
     """Build an installation in a sibling staging directory, then promote it."""
 

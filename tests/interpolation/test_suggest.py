@@ -6,7 +6,9 @@ from mpv_enhanced.manifest import Manifest
 from tests.lua_runtime import load, to_lua, to_py
 from tests.support import ROOT
 
-OPTIONS = Manifest.load(ROOT / "manifest.toml").interpolation
+_loaded = Manifest.load(ROOT / "manifest.toml").interpolation
+assert _loaded is not None
+OPTIONS = _loaded
 # (long edge of the resolution as measured, height) for each level.
 LEVELS = [(1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)]
 FRAME_RATES = (24, 30)

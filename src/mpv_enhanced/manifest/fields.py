@@ -5,18 +5,19 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any
 
 from ..errors import ManifestError, UnsupportedPlatformError
+from ..parsed import as_list, as_table
 from ..platforms import PlatformInfo
 
 _VERSION = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
 
 
-def read_table(value: object, label: str) -> Mapping[str, Any]:
-    if not isinstance(value, dict):
+def read_table(value: object, label: str) -> Mapping[str, object]:
+    table = as_table(value)
+    if table is None:
         raise ManifestError(f"{label} must be a TOML table")
-    return value
+    return table
 
 
 def read_string(value: object, label: str, *, default: str | None = None) -> str:
@@ -37,11 +38,11 @@ def read_string_list(
         return default
     if isinstance(value, str):
         return (value,)
-    if not isinstance(value, list) or any(
-        not isinstance(item, str) or not item for item in value
-    ):
+    items = as_list(value)
+    strings = tuple(item for item in items or () if isinstance(item, str) and item)
+    if items is None or len(strings) != len(items):
         raise ManifestError(f"{label} must be a string or an array of strings")
-    return tuple(value)
+    return strings
 
 
 def validate_relative_path(value: str, label: str) -> str:
@@ -74,9 +75,10 @@ def read_integer(value: object, label: str) -> int:
 
 
 def read_integer_list(value: object, label: str) -> tuple[int, ...]:
-    if not isinstance(value, list) or not value:
+    items = as_list(value)
+    if not items:
         raise ManifestError(f"{label} must list at least one number")
-    return tuple(read_integer(item, label) for item in value)
+    return tuple(read_integer(item, label) for item in items)
 
 
 def read_pattern(value: object, label: str) -> str:
@@ -102,7 +104,7 @@ def platform_key(system: str, arch: str, label: str) -> str:
         raise ManifestError(f"{label}: {exc}") from exc
 
 
-def read_platforms(data: Mapping[str, Any], label: str) -> tuple[str, ...]:
+def read_platforms(data: Mapping[str, object], label: str) -> tuple[str, ...]:
     """Read ``os.<name>.arch = [...]`` as ``<name>-<arch>`` keys; no ``os`` means any."""
     if data.get("os") is None:
         return ()

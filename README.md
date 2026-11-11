@@ -196,6 +196,7 @@ uv run mpv-enhanced list-profiles
 uv run python -m unittest discover -s tests -v
 uv run ruff check .
 uv run ruff format --check .
+uv run basedpyright
 uv lock --check
 uv lock --check --project runtime/rife
 ```

@@ -86,6 +86,34 @@ class ManifestValidationTests(unittest.TestCase):
             full.artifact_for(windows).sha256, lite.artifact_for(windows).sha256
         )
 
+    def test_a_method_that_extends_another_adds_to_its_lists(self) -> None:
+        def methods(child: dict[str, object]) -> Manifest:
+            choice = {"id": "base", "title": "T", "rank": 1, "settings": {}}
+            return Manifest.from_data(
+                {
+                    "schema_version": 1,
+                    "components": {
+                        "first": {"kind": "local", "path": "a"},
+                        "second": {"kind": "local", "path": "b"},
+                    },
+                    "profiles": {"core": {"components": ["first"]}},
+                    "methods": {
+                        "base": {
+                            "description": "d",
+                            "components": ["first"],
+                            "choices": [choice],
+                        },
+                        "child": {"extends": "base", "description": "d", **child},
+                    },
+                }
+            )
+
+        # A lone string is one component, not its letters.
+        child = methods({"components": "second"}).methods["child"]
+        self.assertEqual(child.components, ("first", "second"))
+        with self.assertRaisesRegex(ManifestError, "child.components must be an array"):
+            methods({"components": 5})
+
     def test_choice_ids_must_be_safe_and_not_reserved(self) -> None:
         for identifier in ("none", "has space", "a:b", "UPPER"):
             data = {

@@ -5,24 +5,26 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import cast
+
+from ..parsed import as_list, as_table
 
 SETTINGS = "portable_config/script-opts/mpv_enhanced.json"
 NO_METHOD = "none"
 
 
-def load_settings(app: Path) -> dict[str, Any] | None:
+def load_settings(app: Path) -> dict[str, object] | None:
     """The saved settings, or None if the file is missing or malformed."""
     try:
-        data = json.loads((app / SETTINGS).read_text(encoding="utf-8"))
+        text = (app / SETTINGS).read_text(encoding="utf-8")
+        return as_table(cast(object, json.loads(text)))
     except (OSError, ValueError):
         return None
-    return data if isinstance(data, dict) else None
 
 
-def save_settings(app: Path, data: dict[str, Any]) -> None:
+def save_settings(app: Path, data: Mapping[str, object]) -> None:
     path = app / SETTINGS
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
@@ -37,7 +39,7 @@ def set_enabled(app: Path, enabled: bool) -> None:
     save_settings(app, {**(load_settings(app) or {}), "enabled": enabled})
 
 
-def set_targets(app: Path, targets: list[dict[str, Any]]) -> None:
+def set_targets(app: Path, targets: Sequence[Mapping[str, object]]) -> None:
     save_settings(app, {**(load_settings(app) or {}), "targets": targets})
 
 
@@ -55,11 +57,10 @@ def reconcile_targets(app: Path, installed_ids: Sequence[str]) -> None:
     if "default_method" in data and data["default_method"] not in valid:
         data["default_method"] = installed_ids[0]
         changed = True
-    targets = data.get("targets")
-    if isinstance(targets, list):
-        for target in targets:
-            if isinstance(target, dict) and target.get("method") not in valid:
-                target["method"] = installed_ids[0]
-                changed = True
+    for item in as_list(data.get("targets")) or []:
+        target = as_table(item)
+        if target is not None and target.get("method") not in valid:
+            target["method"] = installed_ids[0]
+            changed = True
     if changed:
         save_settings(app, data)

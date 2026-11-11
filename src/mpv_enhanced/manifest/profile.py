@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
 
 from .component import Component
 from .fields import read_platforms, read_string, read_string_list
@@ -30,7 +29,7 @@ class ResolvedProfile:
     choices: tuple[MethodChoice, ...] = ()
 
 
-def parse_profile(name: str, data: Mapping[str, Any]) -> Profile:
+def parse_profile(name: str, data: Mapping[str, object]) -> Profile:
     return Profile(
         name=name,
         description=read_string(

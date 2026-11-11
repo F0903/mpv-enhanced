@@ -13,11 +13,11 @@ from ..manifest import Manifest
 from ..platforms import PlatformInfo
 from ..versions.layout import Layout
 from ..versions.update import update
+from .arguments import Arguments, build_parser
 from .benchmark import benchmark_command
 from .choices import list_profiles
 from .install import install_command
 from .manage import manager_menu, status
-from .parser import build_parser
 
 
 def main(
@@ -28,9 +28,12 @@ def main(
     stderr: TextIO | None = None,
     downloader: Downloader = download_url,
 ) -> int:
-    stdin = stdin or sys.stdin
-    stdout = stdout or sys.stdout
-    stderr = stderr or sys.stderr
+    streams: tuple[TextIO, TextIO, TextIO] = (
+        stdin or sys.stdin,
+        stdout or sys.stdout,
+        stderr or sys.stderr,
+    )
+    stdin, stdout, stderr = streams
     parser = build_parser()
     try:
         layout = Layout.from_environment()
@@ -40,7 +43,7 @@ def main(
             if chosen is None:
                 return 0
             arguments = chosen
-        args = parser.parse_args(arguments)
+        args = parser.parse_args(arguments, namespace=Arguments())
         manifest = Manifest.load(args.manifest)
         source_root = (args.source_root or args.manifest.parent).resolve()
         platform = (

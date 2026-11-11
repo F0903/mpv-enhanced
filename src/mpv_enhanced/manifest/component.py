@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
 
 from ..errors import ManifestError, UnsupportedPlatformError
 from ..platforms import PlatformInfo
@@ -84,21 +83,21 @@ class Component:
 
 def with_inherited_fields(
     name: str,
-    components: Mapping[str, Any],
-) -> Mapping[str, Any]:
+    components: Mapping[str, object],
+) -> Mapping[str, object]:
     """Apply a component's one-level ``extends``."""
     table = read_table(components[name], f"components.{name}")
     parent = table.get("extends")
     if parent is None:
         return table
-    if parent not in components:
+    if not isinstance(parent, str) or parent not in components:
         raise ManifestError(f"component {name!r} extends unknown component {parent!r}")
     return {**read_table(components[parent], f"components.{parent}"), **table}
 
 
 def parse_component(
     name: str,
-    data: Mapping[str, Any],
+    data: Mapping[str, object],
     python_version: str | None,
 ) -> Component:
     kind = read_string(
@@ -186,7 +185,7 @@ def _parse_setup(name: str, value: object) -> ComponentSetup:
 
 def _parse_system_component(
     name: str,
-    data: Mapping[str, Any],
+    data: Mapping[str, object],
     platforms: tuple[str, ...],
 ) -> Component:
     label = f"components.{name}"
@@ -217,7 +216,7 @@ def _parse_system_component(
 
 def _parse_gpu_component(
     name: str,
-    data: Mapping[str, Any],
+    data: Mapping[str, object],
     platforms: tuple[str, ...],
 ) -> Component:
     label = f"components.{name}"
@@ -240,7 +239,7 @@ def _parse_gpu_component(
 def _parse_runtime_component(
     name: str,
     version: str,
-    data: Mapping[str, Any],
+    data: Mapping[str, object],
     platforms: tuple[str, ...],
     python_version: str | None,
 ) -> Component:

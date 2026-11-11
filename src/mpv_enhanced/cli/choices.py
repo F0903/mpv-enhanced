@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TextIO
@@ -12,6 +11,7 @@ from ..install.system import check_gpu, check_system_program
 from ..manifest import Manifest
 from ..platforms import PlatformInfo
 from ..versions.layout import Layout
+from .arguments import Arguments
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +73,7 @@ def list_profiles(manifest: Manifest, platform: PlatformInfo, output: TextIO) ->
 
 
 def choose_optional(
-    args: argparse.Namespace,
+    args: Arguments,
     manifest: Manifest,
     platform: PlatformInfo,
     layout: Layout,
@@ -104,7 +104,7 @@ def choose_optional(
 
 
 def choose_methods(
-    args: argparse.Namespace,
+    args: Arguments,
     manifest: Manifest,
     platform: PlatformInfo,
     layout: Layout,
@@ -131,12 +131,12 @@ def choose_methods(
     chosen = {name for name in runnable if name in installed}
     if not active:
         first = next((n for n in runnable if manifest.methods[n].preselect), None)
-        chosen = {first} if first else set()
+        chosen = {first} if first else set[str]()
     chosen = _tick_screen("Choose interpolation methods:", rows, chosen, stdin, stdout)
     return tuple(name for name in manifest.methods if name in chosen)
 
 
-def _should_ask(args: argparse.Namespace, active: str | None, stdin: TextIO) -> bool:
+def _should_ask(args: Arguments, active: str | None, stdin: TextIO) -> bool:
     """Screens appear on a first install and for ``mpve profile``, never on updates."""
     return stdin.isatty() and not args.yes and (not active or args.command == "profile")
 
@@ -177,7 +177,7 @@ def _tick_screen(
 
 
 def install_profile(
-    args: argparse.Namespace,
+    args: Arguments,
     manifest: Manifest,
     platform: PlatformInfo,
     stdin: TextIO,

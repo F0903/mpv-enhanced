@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import final
 
 from ..errors import RuntimeSetupError
 from ..manifest import UvRuntime
@@ -47,6 +48,7 @@ def run_command(
     return CommandResult(completed.returncode, completed.stdout, completed.stderr or "")
 
 
+@final
 class UvRuntimeBuilder:
     """Create a locked app-local Python environment without global changes."""
 
@@ -86,7 +88,7 @@ class UvRuntimeBuilder:
         command_environment["XDG_CONFIG_HOME"] = str(
             staging_root / "runtime" / "config"
         )
-        uv_executable = self._find_uv(staging_root, platform)
+        uv_executable = self._find_uv()
 
         create = [
             uv_executable,
@@ -156,7 +158,7 @@ class UvRuntimeBuilder:
                 f"could not register VapourSynth: {result.stdout.strip()}"
             )
 
-    def _find_uv(self, staging_root: Path, platform: PlatformInfo) -> str:
+    def _find_uv(self) -> str:
         # `uv run` exports its own path as UV, so this is the pinned bootstrap uv.
         uv = self.uv_executable or os.environ.get("UV") or shutil.which("uv")
         if not uv:

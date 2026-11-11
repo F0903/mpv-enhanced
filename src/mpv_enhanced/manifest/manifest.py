@@ -7,7 +7,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
 
 from ..errors import ManifestError, UnsupportedPlatformError
 from ..platforms import PlatformInfo
@@ -25,7 +24,7 @@ class Manifest:
     components: Mapping[str, Component]
     profiles: Mapping[str, Profile]
     default_profile: str | None = None
-    methods: Mapping[str, Method] = field(default_factory=dict)
+    methods: Mapping[str, Method] = field(default_factory=dict[str, Method])
     interpolation: InterpolationOptions | None = None
 
     @classmethod
@@ -42,7 +41,7 @@ class Manifest:
     @classmethod
     def from_data(
         cls,
-        data: Mapping[str, Any],
+        data: Mapping[str, object],
         *,
         python_version: str | None = None,
     ) -> Manifest:
@@ -64,7 +63,9 @@ class Manifest:
         if not profiles:
             raise ManifestError("the manifest contains no profiles")
         default_profile = data.get("default_profile")
-        if default_profile is not None and default_profile not in profiles:
+        if default_profile is not None and (
+            not isinstance(default_profile, str) or default_profile not in profiles
+        ):
             raise ManifestError(f"unknown default profile {default_profile!r}")
         raw_methods = read_table(data.get("methods", {}), "methods")
         methods = {
@@ -225,7 +226,7 @@ class Manifest:
         )
 
 
-def _validate_schema_version(data: Mapping[str, Any]) -> None:
+def _validate_schema_version(data: Mapping[str, object]) -> None:
     value = data.get("schema_version")
     if not isinstance(value, int) or isinstance(value, bool) or value != 1:
         raise ManifestError("manifest schema_version must be 1")

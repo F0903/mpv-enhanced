@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..errors import ManifestError
+from ..parsed import as_list
 from .fields import read_integer, read_integer_list, read_string, read_table
 
 
@@ -29,10 +30,10 @@ class InterpolationOptions:
 def parse_options(value: object) -> InterpolationOptions:
     label = "interpolation"
     data = read_table(value, label)
-    raw_resolutions = data.get("resolutions")
-    if not isinstance(raw_resolutions, list) or not raw_resolutions:
+    raw_resolutions = as_list(data.get("resolutions"))
+    if not raw_resolutions:
         raise ManifestError(f"{label}.resolutions must list at least one resolution")
-    resolutions = []
+    resolutions: list[Resolution] = []
     for index, item in enumerate(raw_resolutions):
         entry = read_table(item, f"{label}.resolutions[{index}]")
         resolutions.append(

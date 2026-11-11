@@ -9,10 +9,11 @@ import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from importlib.resources import as_file, files
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 from ..install.installer import INSTALL_INFO
 from ..manifest import InterpolationOptions
+from ..parsed import as_list, as_table
 from ..platforms import PlatformInfo
 from .settings import NO_METHOD
 
@@ -25,16 +26,44 @@ MEASURED_FRAMES = 96
 MEASURE_TIMEOUT = 90
 _RESULT = re.compile(r"MPVE_BENCH frames=(\d+) seconds=([\d.]+)")
 
-Choice = Mapping[str, Any]
+
+class Choice(TypedDict):
+    """An installed interpolation choice, as the install info lists it."""
+
+    id: str
+    title: str
+    settings: Mapping[str, object]
 
 
-def install_choices(app: Path) -> list[dict[str, Any]]:
+class Target(TypedDict):
+    """A target override: videos up to this size and frame rate use this method."""
+
+    max_width: int
+    max_height: int
+    max_fps: int
+    method: str
+    multiplier: int
+
+
+def install_choices(app: Path) -> list[Choice]:
     """The installed interpolation choices, best first."""
     try:
-        info = json.loads((app / INSTALL_INFO).read_text(encoding="utf-8"))
+        text = (app / INSTALL_INFO).read_text(encoding="utf-8")
+        info = as_table(cast(object, json.loads(text))) or {}
     except (OSError, ValueError):
         return []
-    return info.get("choices", [])
+    choices: list[Choice] = []
+    for item in as_list(info.get("choices")) or []:
+        entry = as_table(item) or {}
+        identifier, title = entry.get("id"), entry.get("title")
+        settings = as_table(entry.get("settings"))
+        if (
+            isinstance(identifier, str)
+            and isinstance(title, str)
+            and settings is not None
+        ):
+            choices.append({"id": identifier, "title": title, "settings": settings})
+    return choices
 
 
 def mpv_command(
@@ -80,7 +109,7 @@ def measure_choice(
     choice: Choice,
     platform: PlatformInfo,
     *,
-    run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> float:
     """Output pixels per second this choice manages, or 0.0 if it couldn't run."""
     is_rtx = choice["settings"]["interpolator"] == "rtx"
@@ -127,13 +156,13 @@ def run_benchmark(
     return capacities
 
 
-def _covers(heavier: Mapping[str, Any], lighter: Mapping[str, Any]) -> bool:
+def _covers(heavier: Target, lighter: Target) -> bool:
     return all(
         heavier[key] >= lighter[key] for key in ("max_width", "max_height", "max_fps")
     )
 
 
-def _weight(target: Mapping[str, Any]) -> int:
+def _weight(target: Target) -> int:
     return target["max_width"] * target["max_height"] * target["max_fps"]
 
 
@@ -141,13 +170,13 @@ def suggest_targets(
     capacities: Mapping[str, float],
     order: Sequence[str],
     options: InterpolationOptions,
-) -> list[dict[str, Any]]:
+) -> list[Target]:
     """Target overrides from each choice's measured output pixels per second.
 
     ``order`` lists choice ids best first. Levels the PC can't handle get the
     ``none`` method, so files that large play normally instead of stuttering.
     """
-    levels = []
+    levels: list[Target] = []
     for resolution in options.resolutions:
         if resolution.label not in LEVEL_RESOLUTIONS:
             continue
@@ -174,7 +203,7 @@ def suggest_targets(
             )
 
     levels.sort(key=_weight)
-    merged: list[dict[str, Any]] = []
+    merged: list[Target] = []
     for index, level in enumerate(levels):
         # A level is redundant if the next one up that covers it does the same.
         next_covering = next(

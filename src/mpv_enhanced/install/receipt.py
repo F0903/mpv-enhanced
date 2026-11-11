@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..errors import InstallerError
+from ..parsed import as_list, as_table
 
 RECEIPT_FILENAME = ".mpv-enhanced-receipt.toml"
 
@@ -60,7 +61,7 @@ class InstallationReceipt:
             path /= RECEIPT_FILENAME
         try:
             with path.open("rb") as stream:
-                data = tomllib.load(stream)
+                data: dict[str, object] = tomllib.load(stream)
             components = tuple(
                 InstalledComponent(
                     name=str(item["name"]),
@@ -69,16 +70,16 @@ class InstallationReceipt:
                     sha256=str(item["sha256"]) if "sha256" in item else None,
                     source=str(item["source"]) if "source" in item else None,
                 )
-                for item in data.get("components", [])
+                for item in map(_table, _array(data.get("components", [])))
             )
             return cls(
-                schema_version=int(data["schema_version"]),
+                schema_version=_integer(data["schema_version"]),
                 release=str(data["release"]),
                 profile=str(data["profile"]),
                 platform=str(data["platform"]),
                 installed_at=str(data["installed_at"]),
                 components=components,
-                methods=tuple(str(item) for item in data.get("methods", [])),
+                methods=tuple(str(item) for item in _array(data.get("methods", []))),
             )
         except (
             OSError,
@@ -133,6 +134,27 @@ class InstallationReceipt:
             if component.source is not None:
                 lines.append(f"source = {_quote(component.source)}")
         return "\n".join(lines) + "\n"
+
+
+# Receipt values of the wrong kind raise TypeError, which load() reports.
+def _table(value: object) -> dict[str, object]:
+    table = as_table(value)
+    if table is None:
+        raise TypeError(f"expected a table, found {value!r}")
+    return table
+
+
+def _array(value: object) -> list[object]:
+    items = as_list(value)
+    if items is None:
+        raise TypeError(f"expected an array, found {value!r}")
+    return items
+
+
+def _integer(value: object) -> int:
+    if not isinstance(value, int):
+        raise TypeError(f"expected a number, found {value!r}")
+    return value
 
 
 def _quote(value: str) -> str:

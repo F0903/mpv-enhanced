@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from pathlib import Path
+from typing import final
 
 from ..archives import extract_archive
 from ..downloads import ArtifactCache
@@ -16,6 +17,7 @@ from .runtime import UvRuntimeBuilder
 from .system import check_gpu, check_system_program
 
 
+@final
 class ComponentStager:
     """Copy, download, build, or check a component, and say what was installed."""
 

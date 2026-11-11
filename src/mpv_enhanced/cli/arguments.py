@@ -1,10 +1,50 @@
-"""The commands and options ``mpve`` accepts."""
+"""What the ``mpve`` command line asked for, and the parser that reads it."""
 
 from __future__ import annotations
 
 import argparse
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _default_cache_dir() -> Path:
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "mpv-enhanced" / "cache"
+    if os.environ.get("XDG_CACHE_HOME"):
+        return Path(os.environ["XDG_CACHE_HOME"]) / "mpv-enhanced"
+    return Path.home() / ".cache" / "mpv-enhanced"
+
+
+@dataclass
+class Arguments:
+    """The parsed command line.
+
+    ``build_parser`` fills this in. An option that belongs to another command
+    keeps the value it has here.
+    """
+
+    command: str = ""
+    manifest: Path = Path("manifest.toml")
+    source_root: Path | None = None
+    platform_key: str | None = None
+    # install and profile
+    profile_positional: str | None = None
+    profile_option: str | None = None
+    install_dir: Path | None = None
+    methods: list[str] | None = None
+    optional: list[str] | None = None
+    cache_dir: Path = field(default_factory=_default_cache_dir)
+    offline: bool = False
+    yes: bool = False
+    accept_nvidia_license: bool = False
+    # doctor
+    profile: str | None = None
+    # benchmark
+    suggest_to: Path | None = None
+    progress_file: Path | None = None
+    # use
+    version: str | None = None
 
 
 def _manifest_arguments(
@@ -116,11 +156,3 @@ def build_parser() -> argparse.ArgumentParser:
     _manifest_arguments(use_parser, subcommand=True)
     use_parser.add_argument("version", nargs="?", help="defaults to the active version")
     return parser
-
-
-def _default_cache_dir() -> Path:
-    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
-        return Path(os.environ["LOCALAPPDATA"]) / "mpv-enhanced" / "cache"
-    if os.environ.get("XDG_CACHE_HOME"):
-        return Path(os.environ["XDG_CACHE_HOME"]) / "mpv-enhanced"
-    return Path.home() / ".cache" / "mpv-enhanced"

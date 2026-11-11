@@ -9,13 +9,15 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Callable
+from http.client import HTTPResponse
 from pathlib import Path
+from typing import cast, final
 
 from . import VERSION
 from .errors import DownloadError, HashMismatchError, OfflineCacheMissError
 from .manifest import Artifact
 
-Downloader = Callable[[str, Path], None]
+Downloader = Callable[[str, Path], object]
 BAR_WIDTH = 24
 
 
@@ -51,7 +53,7 @@ def download_url(url: str, destination: Path) -> None:
     done = 0
     try:
         with (
-            urllib.request.urlopen(request, timeout=60) as response,
+            cast(HTTPResponse, urllib.request.urlopen(request, timeout=60)) as response,
             destination.open("xb") as output,
         ):
             total = response.length
@@ -68,6 +70,7 @@ def download_url(url: str, destination: Path) -> None:
             print(file=sys.stderr)
 
 
+@final
 class ArtifactCache:
     """A content-addressed cache whose keys are pinned SHA-256 values."""
 

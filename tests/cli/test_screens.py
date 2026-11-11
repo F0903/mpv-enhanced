@@ -3,8 +3,10 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
+from mpv_enhanced.cli.arguments import Arguments
 from mpv_enhanced.cli.choices import choose_methods, choose_optional
 from mpv_enhanced.cli.install import _setup_answers
 from mpv_enhanced.errors import InstallerError
@@ -40,9 +42,7 @@ class OptionalScreenTests(unittest.TestCase):
         )
         output = StringIO()
         chosen = choose_optional(
-            SimpleNamespace(
-                optional=None, install_dir=None, yes=False, command="install"
-            ),
+            Arguments(optional=None, install_dir=None, yes=False, command="install"),
             manifest,
             PlatformInfo("windows", "x86_64"),
             Layout(Path("not-installed")),
@@ -101,7 +101,7 @@ class MethodsScreenTests(unittest.TestCase):
         )
         reasons = unavailable or {}
         output = StringIO()
-        layout = SimpleNamespace(
+        layout: Any = SimpleNamespace(
             active=lambda: "1.0.0" if installed is not None else None,
             methods=lambda _version: installed or (),
         )
@@ -110,9 +110,7 @@ class MethodsScreenTests(unittest.TestCase):
             side_effect=lambda _m, _n, _p, methods=(): reasons.get(methods[0]),
         ):
             chosen = choose_methods(
-                SimpleNamespace(
-                    methods=flag, install_dir=None, yes=False, command=command
-                ),
+                Arguments(methods=flag, install_dir=None, yes=False, command=command),
                 manifest,
                 PlatformInfo("windows", "x86_64"),
                 layout,
@@ -194,7 +192,7 @@ class SetupScreenTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             (Path(temporary) / "configured.conf").write_text("server=http://kept")
             answers = _setup_answers(
-                SimpleNamespace(install_dir=temporary, yes=False),
+                Arguments(install_dir=Path(temporary), yes=False),
                 manifest,
                 optional,
                 Layout(Path("not-installed")),

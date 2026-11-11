@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
 
 from ..errors import ManifestError
+from ..parsed import as_list
 from .fields import (
     expand,
     platform_key,
@@ -39,7 +39,7 @@ _ARTIFACT_FIELDS = ("url", "sha256", "archive", "exclude")
 
 def parse_artifacts(
     name: str,
-    data: Mapping[str, Any],
+    data: Mapping[str, object],
     default_destination: str,
     python_version: str | None,
 ) -> dict[str, Artifact]:
@@ -54,15 +54,16 @@ def parse_artifacts(
     for system, entry in read_table(data.get("os"), label).items():
         arch_label = f"{label}.{system}.arch"
         raw = read_table(entry, f"{label}.{system}").get("arch")
-        architectures = (
-            {arch: {} for arch in raw}
-            if isinstance(raw, list)
-            else read_table(raw, arch_label)
+        listed = as_list(raw)
+        architectures: Mapping[str, object] = (
+            read_table(raw, arch_label)
+            if listed is None
+            else {str(arch): {} for arch in listed}
         )
         for arch, overrides in architectures.items():
             artifact_label = f"{arch_label}.{arch}"
             key = platform_key(system, arch, artifact_label)
-            values = {}
+            values: dict[str, str] = {}
             if "version" in data:
                 values["version"] = str(data["version"])
             if python_version is not None:
@@ -79,7 +80,7 @@ def parse_artifacts(
 
 
 def _parse_artifact(
-    data: Mapping[str, Any],
+    data: Mapping[str, object],
     label: str,
     default_destination: str,
     values: Mapping[str, str],

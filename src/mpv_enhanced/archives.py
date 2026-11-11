@@ -106,13 +106,25 @@ def _extract_wrapped_tar(
             shutil.copyfileobj(stream, inner)
         inner.seek(0)
         with tarfile.open(fileobj=inner, mode="r:gz") as tar:
+
+            def opener(member: tarfile.TarInfo) -> Callable[[], IO[bytes]]:
+                def open_member() -> IO[bytes]:
+                    stream = tar.extractfile(member)
+                    if stream is None:
+                        raise UnsafeArchiveError(
+                            f"cannot read {member.name!r} from {archive}"
+                        )
+                    return stream
+
+                return open_member
+
             entries = (
                 (
                     member.name,
                     member.isdir(),
                     not (member.isfile() or member.isdir()),
                     member.mode,
-                    lambda member=member: tar.extractfile(member),
+                    opener(member),
                 )
                 for member in tar.getmembers()
             )

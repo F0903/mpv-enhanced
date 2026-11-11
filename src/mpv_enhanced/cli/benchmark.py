@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -10,7 +9,12 @@ from typing import TextIO
 
 from ..downloads import bar
 from ..errors import InstallerError
-from ..interpolation.benchmark import install_choices, run_benchmark, suggest_targets
+from ..interpolation.benchmark import (
+    Target,
+    install_choices,
+    run_benchmark,
+    suggest_targets,
+)
 from ..interpolation.settings import (
     NO_METHOD,
     SETTINGS,
@@ -22,6 +26,7 @@ from ..interpolation.settings import (
 from ..manifest import Manifest
 from ..platforms import PlatformInfo
 from ..versions.layout import Layout
+from .arguments import Arguments
 
 BENCHMARK_BRIEFING = """\
 The benchmark tests each interpolation method on this PC to suggest the best
@@ -35,7 +40,7 @@ def _measure_and_suggest(
     platform: PlatformInfo,
     stdout: TextIO,
     progress_file: Path | None = None,
-) -> list[dict[str, object]]:
+) -> list[Target]:
     """Run the benchmark and turn its measurements into target overrides."""
     assert manifest.interpolation is not None
     choices = install_choices(app)
@@ -113,7 +118,7 @@ def _offer_benchmark(
 
 
 def benchmark_command(
-    args: argparse.Namespace,
+    args: Arguments,
     manifest: Manifest,
     platform: PlatformInfo,
     layout: Layout,
@@ -141,7 +146,7 @@ def benchmark_command(
 
 
 def finish_interpolation(
-    args: argparse.Namespace,
+    args: Arguments,
     app: Path,
     manifest: Manifest,
     methods: tuple[str, ...],

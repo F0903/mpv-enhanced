@@ -13,6 +13,7 @@ from mpv_enhanced.cli.install import (
     NVIDIA_TENSORRT_SLA_URL,
 )
 from mpv_enhanced.errors import InstallerError
+from mpv_enhanced.manifest import GpuRequirement
 from mpv_enhanced.platforms import PlatformInfo
 from tests.support import ROOT, Terminal
 
@@ -243,8 +244,8 @@ class CliTests(unittest.TestCase):
     def test_screen_marks_unavailable_methods_and_ticks_the_first_it_can_run(
         self,
     ) -> None:
-        def only_older_nvidia(gpu: object) -> str:
-            if "RTX 40" in gpu.requirement:  # type: ignore[attr-defined]
+        def only_older_nvidia(gpu: GpuRequirement) -> str:
+            if "RTX 40" in gpu.requirement:
                 raise InstallerError("needs a newer GPU")
             return "NVIDIA GeForce RTX 3080"
 

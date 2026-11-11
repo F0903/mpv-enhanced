@@ -4,6 +4,7 @@ import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from mpv_enhanced.errors import InstallerError
@@ -26,7 +27,7 @@ class UseTests(ManagerTestCase):
             yield home
 
     def use(self, version, platform=WINDOWS, **kwargs):
-        options = {
+        options: dict[str, Any] = {
             "add_to_path": lambda *_: None,
             "add_shortcut": lambda *_: None,
             "which": lambda _name: None,
@@ -159,12 +160,16 @@ class UseTests(ManagerTestCase):
                 self.layout.root / "loader.conf",
             ),
         ):
-            link_version(self.layout, "0.1.0", LINUX, home, run=run)
+            link_version(
+                self.layout.root, self.layout.app("0.1.0"), LINUX, home, run=run
+            )
             self.assertIn(str(library.parent), commands[0])
             self.assertTrue((home / ".config" / "mpv").is_symlink())
             (home / ".config" / "mpv").unlink()
             with self.assertRaisesRegex(InstallerError, "could not update"):
-                link_version(self.layout, "0.1.0", LINUX, home, run=run)
+                link_version(
+                    self.layout.root, self.layout.app("0.1.0"), LINUX, home, run=run
+                )
             self.assertFalse((home / ".config" / "mpv").is_symlink())
 
     @unittest.skipUnless(os.name == "nt", "uses the Windows registry")

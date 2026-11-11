@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mpv_enhanced.downloads import bar
 from mpv_enhanced.interpolation.benchmark import (
+    Choice,
     measure_choice,
     mpv_command,
     run_benchmark,
@@ -11,17 +12,17 @@ from mpv_enhanced.interpolation.benchmark import (
 from tests.support import LINUX, WINDOWS
 
 PROBE = Path("probe.lua")
-RTX = {
+RTX: Choice = {
     "id": "rtx-high",
     "title": "RTX High",
     "settings": {"interpolator": "rtx", "rtx_mode": "HIGH"},
 }
-RIFE = {
+RIFE: Choice = {
     "id": "rife-4.25",
     "title": "RIFE 4.25",
     "settings": {"interpolator": "rife", "rife_model": "4.25", "tensorrt": False},
 }
-TENSORRT = {
+TENSORRT: Choice = {
     "id": "rife-4.25-tensorrt",
     "title": "RIFE 4.25 TensorRT",
     "settings": {"interpolator": "rife", "rife_model": "4.25", "tensorrt": True},

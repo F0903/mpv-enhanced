@@ -121,7 +121,11 @@ class Layout:
             )
         else:
             link_version(
-                self, version, PlatformInfo.detect(), Path.home(), only_if_present=True
+                self.root,
+                self.app(version),
+                PlatformInfo.detect(),
+                Path.home(),
+                only_if_present=True,
             )
         temporary = self.current_file.with_name(f".current-{uuid.uuid4().hex}")
         temporary.write_text(version, "utf-8")
@@ -130,7 +134,7 @@ class Layout:
     def is_in_use(self) -> bool:
         """Whether ``mpve use`` has already pointed this system at an installed version."""
         if os.name != "nt":
-            return is_ours(config_link(Path.home()), self)
+            return is_ours(config_link(Path.home()), self.root)
         found = shutil.which("mpv")
         return found is not None and Path(found).is_relative_to(self.live)
 
@@ -162,7 +166,7 @@ class Layout:
             )
             messages.append("MPV Enhanced is in the Start menu.")
         else:
-            link_version(self, version, platform, home)
+            link_version(self.root, self.app(version), platform, home)
             directory = home / ".local" / "bin"
             if str(directory) not in os.environ.get("PATH", "").split(os.pathsep):
                 names = "mpve" if platform.system == "linux" else "mpv and mpve"

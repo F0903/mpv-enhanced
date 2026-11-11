@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import re
 import shutil
 from pathlib import Path
@@ -15,6 +14,7 @@ from ..install.installer import Installer
 from ..manifest import Manifest
 from ..platforms import PlatformInfo, running_in_wsl
 from ..versions.layout import Layout
+from .arguments import Arguments
 from .benchmark import finish_interpolation
 from .choices import choose_methods, choose_optional, install_profile, require_gpus
 
@@ -32,7 +32,7 @@ NVIDIA_LICENSES = {
 
 
 def install_command(
-    args: argparse.Namespace,
+    args: Arguments,
     manifest: Manifest,
     platform: PlatformInfo,
     layout: Layout,
@@ -131,7 +131,7 @@ def install_command(
 
 
 def _setup_answers(
-    args: argparse.Namespace,
+    args: Arguments,
     manifest: Manifest,
     optional: tuple[str, ...],
     layout: Layout,
@@ -173,7 +173,7 @@ def _setup_answers(
 
 
 def _require_nvidia_license_acceptance(
-    args: argparse.Namespace,
+    args: Arguments,
     manifest: Manifest,
     profile_name: str,
     platform: PlatformInfo,
