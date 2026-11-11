@@ -6,16 +6,16 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from mpv_enhanced_installer.benchmark import (
+from mpv_enhanced.benchmark import (
     measure_choice,
     mpv_command,
     run_benchmark,
 )
-from mpv_enhanced_installer.cli import main
-from mpv_enhanced_installer.downloads import bar
-from mpv_enhanced_installer.installer import INSTALL_INFO
-from mpv_enhanced_installer.platforms import PlatformInfo
-from mpv_enhanced_installer.settings import SETTINGS, load_settings, save_settings
+from mpv_enhanced.cli import main
+from mpv_enhanced.downloads import bar
+from mpv_enhanced.installer import INSTALL_INFO
+from mpv_enhanced.platforms import PlatformInfo
+from mpv_enhanced.settings import SETTINGS, load_settings, save_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = PlatformInfo("windows", "x86_64")
@@ -144,7 +144,7 @@ class CommandLineTests(unittest.TestCase):
         self.app = self.root / "app"
         self.write_info([RTX])
         patcher = patch(
-            "mpv_enhanced_installer.cli.run_benchmark",
+            "mpv_enhanced.cli.run_benchmark",
             side_effect=self.fake_benchmark,
         )
         self.benchmark = patcher.start()
@@ -274,13 +274,11 @@ class InstallOfferTests(CommandLineTests):
     def finish(self, typed, **fields):
         from types import SimpleNamespace
 
-        from mpv_enhanced_installer.cli import _finish_interpolation
-        from mpv_enhanced_installer.manifest import Manifest
+        from mpv_enhanced.cli import _finish_interpolation
+        from mpv_enhanced.manifest import Manifest
 
         output = StringIO()
-        with patch(
-            "mpv_enhanced_installer.cli.PlatformInfo.detect", return_value=WINDOWS
-        ):
+        with patch("mpv_enhanced.cli.PlatformInfo.detect", return_value=WINDOWS):
             _finish_interpolation(
                 SimpleNamespace(**{"yes": False, "command": "install", **fields}),
                 self.app,

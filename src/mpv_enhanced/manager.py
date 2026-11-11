@@ -379,7 +379,7 @@ def rollback(layout: Layout) -> str:
 
 
 def _repository() -> str:
-    for item in metadata("mpv-enhanced-installer").get_all("Project-URL") or []:
+    for item in metadata("mpv-enhanced").get_all("Project-URL") or []:
         label, _, url = item.partition(",")
         if label.strip() == "Repository":
             return url.strip().removesuffix(".git").split("github.com/", 1)[1]
@@ -392,7 +392,7 @@ def _fetch_latest_release(repository: str) -> dict[str, Any]:
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": f"mpv-enhanced-installer/{VERSION}",
+            "User-Agent": f"mpv-enhanced/{VERSION}",
         },
     )
     try:

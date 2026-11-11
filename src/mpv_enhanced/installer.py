@@ -335,7 +335,7 @@ class Installer:
             "benchmark_command": [
                 sys.executable,
                 "-m",
-                "mpv_enhanced_installer.cli",
+                "mpv_enhanced.cli",
                 "--manifest",
                 str(self.source_root / "manifest.toml"),
                 "benchmark",

@@ -2,4 +2,4 @@
 
 from importlib.metadata import version
 
-VERSION = version("mpv-enhanced-installer")
+VERSION = version("mpv-enhanced")

@@ -10,9 +10,9 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from mpv_enhanced_installer.cli import main
-from mpv_enhanced_installer.errors import InstallerError
-from mpv_enhanced_installer.manager import (
+from mpv_enhanced.cli import main
+from mpv_enhanced.errors import InstallerError
+from mpv_enhanced.manager import (
     Layout,
     link_version,
     rollback,
@@ -21,9 +21,9 @@ from mpv_enhanced_installer.manager import (
     update,
     use,
 )
-from mpv_enhanced_installer.platforms import PlatformInfo
-from mpv_enhanced_installer.receipt import InstallationReceipt, InstalledComponent
-from mpv_enhanced_installer.version import VERSION
+from mpv_enhanced.platforms import PlatformInfo
+from mpv_enhanced.receipt import InstallationReceipt, InstalledComponent
+from mpv_enhanced.version import VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = PlatformInfo("windows", "x86_64")
@@ -240,7 +240,7 @@ class UseTests(ManagerTestCase):
         with (
             self.home() as home,
             patch(
-                "mpv_enhanced_installer.manager.LOADER_CONFIG",
+                "mpv_enhanced.manager.LOADER_CONFIG",
                 self.layout.root / "loader.conf",
             ),
         ):
@@ -461,8 +461,8 @@ class ManagedCliTests(ManagerTestCase):
             )
 
         with (
-            patch("mpv_enhanced_installer.cli.ArtifactCache"),
-            patch("mpv_enhanced_installer.cli.Installer") as installer,
+            patch("mpv_enhanced.cli.ArtifactCache"),
+            patch("mpv_enhanced.cli.Installer") as installer,
         ):
             installer.return_value.install.side_effect = install
             code, output, errors = self.run_cli(*arguments, stdin=stdin)
@@ -515,8 +515,8 @@ class ManagedCliTests(ManagerTestCase):
             )
 
         with (
-            patch("mpv_enhanced_installer.cli.ArtifactCache"),
-            patch("mpv_enhanced_installer.cli.Installer") as installer,
+            patch("mpv_enhanced.cli.ArtifactCache"),
+            patch("mpv_enhanced.cli.Installer") as installer,
         ):
             installer.return_value.install.side_effect = install
             code, output, errors = self.run_cli(

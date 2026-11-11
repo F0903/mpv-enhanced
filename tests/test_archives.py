@@ -7,8 +7,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from mpv_enhanced_installer.archives import extract_archive
-from mpv_enhanced_installer.errors import UnsafeArchiveError
+from mpv_enhanced.archives import extract_archive
+from mpv_enhanced.errors import UnsafeArchiveError
 
 
 class SafeZipTests(unittest.TestCase):

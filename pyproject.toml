@@ -3,7 +3,7 @@ requires = ["uv_build>=0.12.4,<0.13"]
 build-backend = "uv_build"
 
 [project]
-name = "mpv-enhanced-installer"
+name = "mpv-enhanced"
 version = "3.0.0"
 description = "Installer for mpv-enhanced"
 readme = "README.md"
@@ -20,7 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-mpv-enhanced = "mpv_enhanced_installer.cli:main"
+mpv-enhanced = "mpv_enhanced.cli:main"
 
 [project.urls]
 Repository = "https://github.com/F0903/mpv-rife"
@@ -42,7 +42,7 @@ required-environments = [
 ]
 
 [tool.uv.build-backend]
-module-name = "mpv_enhanced_installer"
+module-name = "mpv_enhanced"
 module-root = "src"
 
 [tool.ruff]

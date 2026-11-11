@@ -6,22 +6,22 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mpv_enhanced_installer.downloads import ArtifactCache
-from mpv_enhanced_installer.errors import (
+from mpv_enhanced.downloads import ArtifactCache
+from mpv_enhanced.errors import (
     InstallerError,
     OfflineRuntimeUnsupportedError,
 )
-from mpv_enhanced_installer.installer import (
+from mpv_enhanced.installer import (
     DEFAULT_PRESERVED_PATHS,
     INSTALL_INFO,
     Installer,
     check_gpu,
     check_system_program,
 )
-from mpv_enhanced_installer.manifest import GpuRequirement, Manifest, SystemProgram
-from mpv_enhanced_installer.platforms import PlatformInfo
-from mpv_enhanced_installer.receipt import InstallationReceipt
-from mpv_enhanced_installer.version import VERSION
+from mpv_enhanced.manifest import GpuRequirement, Manifest, SystemProgram
+from mpv_enhanced.platforms import PlatformInfo
+from mpv_enhanced.receipt import InstallationReceipt
+from mpv_enhanced.version import VERSION
 
 
 def local_manifest(path: str = "portable_config") -> Manifest:
@@ -332,9 +332,7 @@ class TransactionalInstallerTests(unittest.TestCase):
         self.assertEqual(info["choices"][0]["settings"], {"x": 2})
         self.assertEqual(info["options"]["resolutions"][0]["label"], "4K")
         self.assertEqual(info["options"]["default_fps_cutoff"], 60)
-        self.assertEqual(
-            info["benchmark_command"][1:3], ["-m", "mpv_enhanced_installer.cli"]
-        )
+        self.assertEqual(info["benchmark_command"][1:3], ["-m", "mpv_enhanced.cli"])
         self.assertIn(str(target.resolve()), info["benchmark_command"])
         self.assertEqual(result.receipt.methods, ("m",))
 
@@ -500,9 +498,7 @@ class TransactionalInstallerTests(unittest.TestCase):
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         os.link(source, destination)
 
-                    with patch(
-                        "mpv_enhanced_installer.installer._copy_local", hardlink
-                    ):
+                    with patch("mpv_enhanced.installer._copy_local", hardlink):
                         installer.install("rife", target)
                     self.assertEqual(
                         (target / "models" / "model.pkl").read_bytes(), model

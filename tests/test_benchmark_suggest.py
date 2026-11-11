@@ -2,8 +2,8 @@ import itertools
 import unittest
 from pathlib import Path
 
-from mpv_enhanced_installer.benchmark import suggest_targets
-from mpv_enhanced_installer.manifest import Manifest
+from mpv_enhanced.benchmark import suggest_targets
+from mpv_enhanced.manifest import Manifest
 from tests.lua_runtime import load, to_lua, to_py
 
 ROOT = Path(__file__).resolve().parents[1]

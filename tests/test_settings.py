@@ -5,9 +5,9 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
-from mpv_enhanced_installer.cli import _finish_interpolation
-from mpv_enhanced_installer.manifest import Manifest
-from mpv_enhanced_installer.settings import (
+from mpv_enhanced.cli import _finish_interpolation
+from mpv_enhanced.manifest import Manifest
+from mpv_enhanced.settings import (
     SETTINGS,
     load_settings,
     reconcile_targets,

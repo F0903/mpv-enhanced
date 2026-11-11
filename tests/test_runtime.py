@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mpv_enhanced_installer.manifest import UvRuntime
-from mpv_enhanced_installer.platforms import PlatformInfo
-from mpv_enhanced_installer.runtime import CommandResult, UvRuntimeBuilder
+from mpv_enhanced.manifest import UvRuntime
+from mpv_enhanced.platforms import PlatformInfo
+from mpv_enhanced.runtime import CommandResult, UvRuntimeBuilder
 
 
 class UvRuntimeTests(unittest.TestCase):

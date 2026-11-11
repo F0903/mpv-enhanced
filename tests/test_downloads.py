@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mpv_enhanced_installer.downloads import ArtifactCache, progress_line
-from mpv_enhanced_installer.errors import HashMismatchError, OfflineCacheMissError
-from mpv_enhanced_installer.manifest import Artifact
+from mpv_enhanced.downloads import ArtifactCache, progress_line
+from mpv_enhanced.errors import HashMismatchError, OfflineCacheMissError
+from mpv_enhanced.manifest import Artifact
 
 
 def artifact_for(content: bytes) -> Artifact:

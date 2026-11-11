@@ -44,7 +44,7 @@ def download_url(url: str, destination: Path) -> None:
     """Download *url* to *destination* without interpreting its contents."""
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": f"mpv-enhanced-installer/{VERSION}"},
+        headers={"User-Agent": f"mpv-enhanced/{VERSION}"},
     )
     name = url.rsplit("/", 1)[-1]
     show_progress = sys.stderr.isatty()

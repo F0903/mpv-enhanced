@@ -36,7 +36,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mpv-enhanced-installer"
+name = "mpv-enhanced"
 version = "3.0.0"
 source = { editable = "." }
 

@@ -1,9 +1,9 @@
 import unittest
 from pathlib import Path
 
-from mpv_enhanced_installer.errors import ManifestError, UnsupportedPlatformError
-from mpv_enhanced_installer.manifest import Manifest
-from mpv_enhanced_installer.platforms import PlatformInfo
+from mpv_enhanced.errors import ManifestError, UnsupportedPlatformError
+from mpv_enhanced.manifest import Manifest
+from mpv_enhanced.platforms import PlatformInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_VERSION = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
