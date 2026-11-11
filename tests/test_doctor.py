@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from mpv_enhanced import VERSION
 from mpv_enhanced.doctor import run_doctor
 from mpv_enhanced.manifest import Manifest
 from mpv_enhanced.platforms import PlatformInfo
@@ -11,7 +12,6 @@ from mpv_enhanced.receipt import (
     InstallationReceipt,
     InstalledComponent,
 )
-from mpv_enhanced.version import VERSION
 
 MODEL = b"locked-model"
 

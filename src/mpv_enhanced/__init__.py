@@ -1,20 +1,6 @@
-"""Installer core for mpv-enhanced."""
+"""mpv-enhanced's manager: installs the player and switches between its versions."""
 
-from .errors import InstallerError
-from .installer import Installer, InstallResult
-from .manifest import Artifact, Component, Manifest, Profile, ResolvedProfile
-from .platforms import PlatformInfo
-from .receipt import InstallationReceipt
+from importlib.metadata import version
 
-__all__ = [
-    "Artifact",
-    "Component",
-    "InstallResult",
-    "InstallationReceipt",
-    "Installer",
-    "InstallerError",
-    "Manifest",
-    "PlatformInfo",
-    "Profile",
-    "ResolvedProfile",
-]
+# Read from the package metadata, which pyproject.toml sets.
+VERSION = version("mpv-enhanced")

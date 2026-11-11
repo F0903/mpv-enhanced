@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from mpv_enhanced import VERSION
 from mpv_enhanced.downloads import ArtifactCache
 from mpv_enhanced.errors import (
     InstallerError,
@@ -21,7 +22,6 @@ from mpv_enhanced.installer import (
 from mpv_enhanced.manifest import GpuRequirement, Manifest, SystemProgram
 from mpv_enhanced.platforms import PlatformInfo
 from mpv_enhanced.receipt import InstallationReceipt
-from mpv_enhanced.version import VERSION
 
 
 def local_manifest(path: str = "portable_config") -> Manifest:

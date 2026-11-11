@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
+from . import VERSION
 from .benchmark import install_choices, run_benchmark, suggest_targets
 from .doctor import run_doctor
 from .downloads import ArtifactCache, Downloader, bar, download_url
@@ -29,7 +30,6 @@ from .settings import (
     set_enabled,
     set_targets,
 )
-from .version import VERSION
 
 BENCHMARK_BRIEFING = """\
 The benchmark tests each interpolation method on this PC to suggest the best

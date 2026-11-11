@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import VERSION
 from .archives import extract_archive
 from .downloads import ArtifactCache
 from .errors import InstallerError, OfflineRuntimeUnsupportedError, PromotionError
@@ -27,7 +28,6 @@ from .manifest import (
 from .platforms import PlatformInfo
 from .receipt import InstallationReceipt, InstalledComponent
 from .runtime import UvRuntimeBuilder
-from .version import VERSION
 
 INSTALL_INFO = "portable_config/script-opts/mpv_enhanced_install.json"
 DEFAULT_PRESERVED_PATHS = (

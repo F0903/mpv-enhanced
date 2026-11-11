@@ -11,9 +11,9 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from . import VERSION
 from .errors import DownloadError, HashMismatchError, OfflineCacheMissError
 from .manifest import Artifact
-from .version import VERSION
 
 Downloader = Callable[[str, Path], None]
 BAR_WIDTH = 24
