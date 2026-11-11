@@ -11,24 +11,11 @@ from typing import Any
 
 from ..errors import ManifestError, UnsupportedPlatformError
 from ..platforms import PlatformInfo
+from .component import Component, _parse_component, _with_inherited_fields
 from .fields import _table
-from .model import (
-    Component,
-    InterpolationOptions,
-    Method,
-    MethodChoice,
-    Profile,
-    ResolvedProfile,
-)
-from .parsing import (
-    _parse_component,
-    _parse_method,
-    _parse_options,
-    _parse_profile,
-    _validate_schema_version,
-    _with_inherited_fields,
-    _with_inherited_method,
-)
+from .interpolation_options import InterpolationOptions, _parse_options
+from .method import Method, MethodChoice, _parse_method, _with_inherited_method
+from .profile import Profile, ResolvedProfile, _parse_profile
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,3 +223,9 @@ class Manifest:
         return profile.platforms or next(
             filter(None, (self._profile_platforms(p) for p in profile.extends)), ()
         )
+
+
+def _validate_schema_version(data: Mapping[str, Any]) -> None:
+    value = data.get("schema_version")
+    if not isinstance(value, int) or isinstance(value, bool) or value != 1:
+        raise ManifestError("manifest schema_version must be 1")
