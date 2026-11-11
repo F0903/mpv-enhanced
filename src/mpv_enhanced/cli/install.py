@@ -14,11 +14,9 @@ from ..errors import InstallerError
 from ..install.installer import Installer
 from ..manifest import Manifest
 from ..platforms import PlatformInfo, running_in_wsl
-from ..versions.activate import is_in_use
 from ..versions.layout import Layout
 from .benchmark import _finish_interpolation
 from .choices import _choose_methods, _choose_optional, _install_profile, _require_gpus
-from .manage import _active_app
 
 NVIDIA_TENSORRT_SLA_URL = (
     "https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html"
@@ -107,7 +105,7 @@ def _install_command(
             f"Start mpv-enhanced with: {layout.player(VERSION, platform)}",
             file=stdout,
         )
-        if not is_in_use(layout):
+        if not layout.is_in_use():
             print("Run mpve use to make mpv use this install.", file=stdout)
         return 0
     if result.previous_dir is not None:
@@ -146,7 +144,7 @@ def _setup_answers(
     answers: dict[str, str] = {}
     if args.yes or not stdin.isatty():
         return answers
-    existing = args.install_dir or _active_app(layout)
+    existing = args.install_dir or layout.active_app()
     pending = [
         component
         for component in (manifest.components.get(name) for name in optional)

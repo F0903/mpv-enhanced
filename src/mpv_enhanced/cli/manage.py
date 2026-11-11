@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TextIO
 
 from ..errors import InstallerError
 from ..platforms import PlatformInfo
 from ..versions.layout import Layout
-
-
-def _active_app(layout: Layout) -> Path | None:
-    active = layout.active()
-    return layout.app(active) if active else None
 
 
 def _status(layout: Layout, platform: PlatformInfo, output: TextIO) -> int:

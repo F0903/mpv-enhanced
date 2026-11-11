@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 from mpv_enhanced.errors import InstallerError
 from mpv_enhanced.platforms import PlatformInfo
-from mpv_enhanced.versions.activate import use
 from mpv_enhanced.versions.layout import Layout
 from mpv_enhanced.versions.posix import link_version
 from mpv_enhanced.versions.windows import set_start_menu_shortcut, set_user_path
@@ -32,7 +31,7 @@ class UseTests(ManagerTestCase):
             "add_shortcut": lambda *_: None,
             "which": lambda _name: None,
         }
-        return use(self.layout, version, platform, **{**options, **kwargs})
+        return self.layout.use(version, platform, **{**options, **kwargs})
 
     def test_activates_the_version_and_puts_the_real_mpv_on_the_path(self) -> None:
         self.install("0.1.0")
@@ -68,11 +67,8 @@ class UseTests(ManagerTestCase):
             self.use("0.9.0")
         with self.assertRaisesRegex(InstallerError, "nothing is installed"):
             Layout(self.layout.root / "empty").live.parent.mkdir()
-            use(
-                Layout(self.layout.root / "empty"),
-                None,
-                WINDOWS,
-                add_to_path=lambda *_: None,
+            Layout(self.layout.root / "empty").use(
+                None, WINDOWS, add_to_path=lambda *_: None
             )
 
     def test_warns_about_another_mpv_on_the_path(self) -> None:

@@ -11,13 +11,12 @@ from ..errors import InstallerError
 from ..install.doctor import run_doctor
 from ..manifest import Manifest
 from ..platforms import PlatformInfo
-from ..versions.activate import rollback, use
 from ..versions.layout import Layout
 from ..versions.update import update
 from .benchmark import _benchmark_command
 from .choices import _list_profiles
 from .install import _install_command
-from .manage import _active_app, _manager_menu, _status
+from .manage import _manager_menu, _status
 from .parser import build_parser
 
 
@@ -57,7 +56,7 @@ def main(
                 platform=platform,
                 source_root=source_root,
                 profile_name=args.profile,
-                install_dir=args.install_dir or _active_app(layout),
+                install_dir=args.install_dir or layout.active_app(),
             )
             for check in checks:
                 marker = "ok" if check.ok else "FAIL"
@@ -68,11 +67,11 @@ def main(
         if args.command == "benchmark":
             return _benchmark_command(args, manifest, platform, layout, stdin, stdout)
         if args.command == "use":
-            for message in use(layout, args.version, platform):
+            for message in layout.use(args.version, platform):
                 print(message, file=stdout)
             return 0
         if args.command == "rollback":
-            print(f"Now using {rollback(layout)}", file=stdout)
+            print(f"Now using {layout.rollback()}", file=stdout)
             return 0
         if args.command == "update":
             updated = update(layout)

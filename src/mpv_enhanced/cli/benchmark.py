@@ -22,7 +22,6 @@ from ..interpolation.settings import (
 from ..manifest import Manifest
 from ..platforms import PlatformInfo
 from ..versions.layout import Layout
-from .manage import _active_app
 
 BENCHMARK_BRIEFING = """\
 The benchmark tests each interpolation method on this PC to suggest the best
@@ -121,7 +120,7 @@ def _benchmark_command(
     stdin: TextIO,
     stdout: TextIO,
 ) -> int:
-    app = args.install_dir or _active_app(layout)
+    app = args.install_dir or layout.active_app()
     if app is None:
         raise InstallerError("nothing is installed yet; run mpve install first")
     if not install_choices(app):

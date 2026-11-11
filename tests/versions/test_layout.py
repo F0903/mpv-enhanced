@@ -1,7 +1,6 @@
 import unittest
 
 from mpv_enhanced.errors import InstallerError
-from mpv_enhanced.versions.activate import rollback
 from tests.versions.support import ManagerTestCase
 
 
@@ -28,10 +27,10 @@ class LayoutTests(ManagerTestCase):
         self.install("0.1.0")
         self.layout.activate("0.1.0")
         with self.assertRaisesRegex(InstallerError, "no previous version"):
-            rollback(self.layout)
+            self.layout.rollback()
         self.install("0.2.0")
         self.layout.activate("0.2.0")
-        self.assertEqual(rollback(self.layout), "0.1.0")
+        self.assertEqual(self.layout.rollback(), "0.1.0")
         self.assertEqual(self.layout.active(), "0.1.0")
 
     def test_store_release_copies_only_release_files(self) -> None:
