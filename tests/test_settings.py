@@ -5,7 +5,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
-from mpv_enhanced.cli import _finish_interpolation
+from mpv_enhanced.cli.benchmark import _finish_interpolation
 from mpv_enhanced.interpolation.settings import (
     SETTINGS,
     load_settings,

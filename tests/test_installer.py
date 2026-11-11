@@ -331,7 +331,7 @@ class TransactionalInstallerTests(unittest.TestCase):
         self.assertEqual(info["choices"][0]["settings"], {"x": 2})
         self.assertEqual(info["options"]["resolutions"][0]["label"], "4K")
         self.assertEqual(info["options"]["default_fps_cutoff"], 60)
-        self.assertEqual(info["benchmark_command"][1:3], ["-m", "mpv_enhanced.cli"])
+        self.assertEqual(info["benchmark_command"][1:3], ["-m", "mpv_enhanced"])
         self.assertIn(str(target.resolve()), info["benchmark_command"])
         self.assertEqual(result.receipt.methods, ("m",))
 

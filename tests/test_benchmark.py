@@ -144,7 +144,7 @@ class CommandLineTests(unittest.TestCase):
         self.app = self.root / "app"
         self.write_info([RTX])
         patcher = patch(
-            "mpv_enhanced.cli.run_benchmark",
+            "mpv_enhanced.cli.benchmark.run_benchmark",
             side_effect=self.fake_benchmark,
         )
         self.benchmark = patcher.start()
@@ -274,11 +274,11 @@ class InstallOfferTests(CommandLineTests):
     def finish(self, typed, **fields):
         from types import SimpleNamespace
 
-        from mpv_enhanced.cli import _finish_interpolation
+        from mpv_enhanced.cli.benchmark import _finish_interpolation
         from mpv_enhanced.manifest import Manifest
 
         output = StringIO()
-        with patch("mpv_enhanced.cli.PlatformInfo.detect", return_value=WINDOWS):
+        with patch("mpv_enhanced.platforms.PlatformInfo.detect", return_value=WINDOWS):
             _finish_interpolation(
                 SimpleNamespace(**{"yes": False, "command": "install", **fields}),
                 self.app,

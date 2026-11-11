@@ -457,8 +457,8 @@ class ManagedCliTests(ManagerTestCase):
             )
 
         with (
-            patch("mpv_enhanced.cli.ArtifactCache"),
-            patch("mpv_enhanced.cli.Installer") as installer,
+            patch("mpv_enhanced.cli.install.ArtifactCache"),
+            patch("mpv_enhanced.cli.install.Installer") as installer,
         ):
             installer.return_value.install.side_effect = install
             code, output, errors = self.run_cli(*arguments, stdin=stdin)
@@ -511,8 +511,8 @@ class ManagedCliTests(ManagerTestCase):
             )
 
         with (
-            patch("mpv_enhanced.cli.ArtifactCache"),
-            patch("mpv_enhanced.cli.Installer") as installer,
+            patch("mpv_enhanced.cli.install.ArtifactCache"),
+            patch("mpv_enhanced.cli.install.Installer") as installer,
         ):
             installer.return_value.install.side_effect = install
             code, output, errors = self.run_cli(

@@ -7,13 +7,12 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mpv_enhanced.cli import (
+from mpv_enhanced.cli import main
+from mpv_enhanced.cli.choices import _choose_methods, _choose_optional
+from mpv_enhanced.cli.install import (
     NVIDIA_SOFTWARE_LICENSE_URL,
     NVIDIA_TENSORRT_SLA_URL,
-    _choose_methods,
-    _choose_optional,
     _setup_answers,
-    main,
 )
 from mpv_enhanced.errors import InstallerError
 from mpv_enhanced.manifest import Manifest
@@ -120,7 +119,7 @@ class MethodsScreenTests(unittest.TestCase):
             methods=lambda _version: installed or (),
         )
         with patch(
-            "mpv_enhanced.cli._unavailable_reason",
+            "mpv_enhanced.cli.choices._unavailable_reason",
             side_effect=lambda _m, _n, _p, methods=(): reasons.get(methods[0]),
         ):
             chosen = _choose_methods(
@@ -235,7 +234,7 @@ class SetupScreenTests(unittest.TestCase):
 class CliTests(unittest.TestCase):
     def setUp(self) -> None:
         for target in ("check_gpu", "check_system_program"):
-            patcher = patch(f"mpv_enhanced.cli.{target}")
+            patcher = patch(f"mpv_enhanced.cli.choices.{target}")
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -273,8 +272,8 @@ class CliTests(unittest.TestCase):
             target = Path(temporary) / "target"
             cache = Path(temporary) / "cache"
             with (
-                patch("mpv_enhanced.cli.ArtifactCache") as artifact_cache,
-                patch("mpv_enhanced.cli.Installer") as installer,
+                patch("mpv_enhanced.cli.install.ArtifactCache") as artifact_cache,
+                patch("mpv_enhanced.cli.install.Installer") as installer,
             ):
                 code = main(
                     self._install_args("rife-tensorrt", target, cache),
@@ -298,7 +297,7 @@ class CliTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             target = Path(temporary) / "target"
             cache = Path(temporary) / "cache"
-            with patch("mpv_enhanced.cli.ArtifactCache") as artifact_cache:
+            with patch("mpv_enhanced.cli.install.ArtifactCache") as artifact_cache:
                 code = main(
                     [*self._install_args("rife-tensorrt", target, cache), "--yes"],
                     stdin=user_input,
@@ -320,8 +319,8 @@ class CliTests(unittest.TestCase):
             target = Path(temporary) / "target"
             cache = Path(temporary) / "cache"
             with (
-                patch("mpv_enhanced.cli.ArtifactCache"),
-                patch("mpv_enhanced.cli.Installer") as installer,
+                patch("mpv_enhanced.cli.install.ArtifactCache"),
+                patch("mpv_enhanced.cli.install.Installer") as installer,
             ):
                 installer.return_value.install.return_value = self._install_result(
                     target, "rife-tensorrt"
@@ -344,7 +343,7 @@ class CliTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             target = Path(temporary) / "target"
             cache = Path(temporary) / "cache"
-            with patch("mpv_enhanced.cli.ArtifactCache") as artifact_cache:
+            with patch("mpv_enhanced.cli.install.ArtifactCache") as artifact_cache:
                 code = main(
                     self._install_args("rife-tensorrt", target, cache),
                     stdin=TtyStringIO("\nyes\n"),
@@ -368,8 +367,8 @@ class CliTests(unittest.TestCase):
             target.mkdir()
             (target / "mpv.exe").write_bytes(b"")
             with (
-                patch("mpv_enhanced.cli.ArtifactCache"),
-                patch("mpv_enhanced.cli.Installer") as installer,
+                patch("mpv_enhanced.cli.install.ArtifactCache"),
+                patch("mpv_enhanced.cli.install.Installer") as installer,
             ):
                 installer.return_value.install.return_value = self._install_result(
                     target, "rife-tensorrt"
@@ -402,10 +401,10 @@ class CliTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "mpv_enhanced.cli.check_gpu",
+                    "mpv_enhanced.cli.choices.check_gpu",
                     side_effect=InstallerError("choose a RIFE profile instead"),
                 ),
-                patch("mpv_enhanced.cli.ArtifactCache") as artifact_cache,
+                patch("mpv_enhanced.cli.install.ArtifactCache") as artifact_cache,
             ):
                 code = main(args, stdin=TtyStringIO(""), stdout=output, stderr=errors)
         self.assertEqual(code, 2)
@@ -419,7 +418,7 @@ class CliTests(unittest.TestCase):
             args = self._install_args(
                 "rtx", Path(temporary) / "target", Path(temporary) / "cache"
             )
-            with patch("mpv_enhanced.cli.check_gpu"):
+            with patch("mpv_enhanced.cli.choices.check_gpu"):
                 code = main(args, stdin=StringIO(), stdout=StringIO(), stderr=errors)
         self.assertEqual(code, 2)
         self.assertIn(NVIDIA_SOFTWARE_LICENSE_URL, errors.getvalue())
@@ -436,9 +435,9 @@ class CliTests(unittest.TestCase):
                 if item not in ("--profile", "core")
             ]
             with (
-                patch("mpv_enhanced.cli.check_gpu"),
-                patch("mpv_enhanced.cli.ArtifactCache"),
-                patch("mpv_enhanced.cli.Installer") as installer,
+                patch("mpv_enhanced.cli.choices.check_gpu"),
+                patch("mpv_enhanced.cli.install.ArtifactCache"),
+                patch("mpv_enhanced.cli.install.Installer") as installer,
             ):
                 installer.return_value.install.return_value = self._install_result(
                     target, "core"
@@ -474,15 +473,15 @@ class CliTests(unittest.TestCase):
             ]
             with (
                 patch(
-                    "mpv_enhanced.cli.check_gpu",
+                    "mpv_enhanced.cli.choices.check_gpu",
                     side_effect=only_older_nvidia,
                 ),
                 patch(
-                    "mpv_enhanced.cli.PlatformInfo.detect",
+                    "mpv_enhanced.platforms.PlatformInfo.detect",
                     return_value=PlatformInfo("windows", "x86_64"),
                 ),
-                patch("mpv_enhanced.cli.ArtifactCache"),
-                patch("mpv_enhanced.cli.Installer") as installer,
+                patch("mpv_enhanced.cli.install.ArtifactCache"),
+                patch("mpv_enhanced.cli.install.Installer") as installer,
             ):
                 installer.return_value.install.return_value = self._install_result(
                     target, "core"
@@ -506,9 +505,9 @@ class CliTests(unittest.TestCase):
             target = Path(temporary) / "target"
             cache = Path(temporary) / "cache"
             with (
-                patch("mpv_enhanced.cli.running_in_wsl", return_value=True),
-                patch("mpv_enhanced.cli.ArtifactCache"),
-                patch("mpv_enhanced.cli.Installer") as installer,
+                patch("mpv_enhanced.cli.install.running_in_wsl", return_value=True),
+                patch("mpv_enhanced.cli.install.ArtifactCache"),
+                patch("mpv_enhanced.cli.install.Installer") as installer,
             ):
                 installer.return_value.install.return_value = self._install_result(
                     target, "core"
