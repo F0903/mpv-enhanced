@@ -14,16 +14,12 @@ from mpv_enhanced import VERSION
 from mpv_enhanced.cli import main
 from mpv_enhanced.errors import InstallerError
 from mpv_enhanced.install.receipt import InstallationReceipt, InstalledComponent
-from mpv_enhanced.manager import (
-    Layout,
-    link_version,
-    rollback,
-    set_start_menu_shortcut,
-    set_user_path,
-    update,
-    use,
-)
 from mpv_enhanced.platforms import PlatformInfo
+from mpv_enhanced.versions.activate import rollback, use
+from mpv_enhanced.versions.layout import Layout
+from mpv_enhanced.versions.posix import link_version
+from mpv_enhanced.versions.update import update
+from mpv_enhanced.versions.windows import set_start_menu_shortcut, set_user_path
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = PlatformInfo("windows", "x86_64")
@@ -240,7 +236,7 @@ class UseTests(ManagerTestCase):
         with (
             self.home() as home,
             patch(
-                "mpv_enhanced.manager.LOADER_CONFIG",
+                "mpv_enhanced.versions.posix.LOADER_CONFIG",
                 self.layout.root / "loader.conf",
             ),
         ):

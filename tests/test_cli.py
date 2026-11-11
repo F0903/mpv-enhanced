@@ -16,9 +16,9 @@ from mpv_enhanced.cli import (
     main,
 )
 from mpv_enhanced.errors import InstallerError
-from mpv_enhanced.manager import Layout
 from mpv_enhanced.manifest import Manifest
 from mpv_enhanced.platforms import PlatformInfo
+from mpv_enhanced.versions.layout import Layout
 
 ROOT = Path(__file__).resolve().parents[1]
 

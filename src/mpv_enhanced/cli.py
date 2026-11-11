@@ -20,7 +20,6 @@ from .errors import InstallerError
 from .install.doctor import run_doctor
 from .install.installer import Installer
 from .install.system import check_gpu, check_system_program
-from .manager import Layout, is_in_use, rollback, update, use
 from .manifest import Manifest
 from .platforms import PlatformInfo, running_in_wsl
 from .settings import (
@@ -31,6 +30,9 @@ from .settings import (
     set_enabled,
     set_targets,
 )
+from .versions.activate import is_in_use, rollback, use
+from .versions.layout import Layout
+from .versions.update import update
 
 BENCHMARK_BRIEFING = """\
 The benchmark tests each interpolation method on this PC to suggest the best
