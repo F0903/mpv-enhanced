@@ -2,7 +2,7 @@ import itertools
 import unittest
 from pathlib import Path
 
-from mpv_enhanced.benchmark import suggest_targets
+from mpv_enhanced.interpolation.benchmark import suggest_targets
 from mpv_enhanced.manifest import Manifest
 from tests.lua_runtime import load, to_lua, to_py
 

@@ -14,15 +14,13 @@ from pathlib import Path
 from typing import TextIO
 
 from . import VERSION
-from .benchmark import install_choices, run_benchmark, suggest_targets
 from .downloads import ArtifactCache, Downloader, bar, download_url
 from .errors import InstallerError
 from .install.doctor import run_doctor
 from .install.installer import Installer
 from .install.system import check_gpu, check_system_program
-from .manifest import Manifest
-from .platforms import PlatformInfo, running_in_wsl
-from .settings import (
+from .interpolation.benchmark import install_choices, run_benchmark, suggest_targets
+from .interpolation.settings import (
     NO_METHOD,
     SETTINGS,
     load_settings,
@@ -30,6 +28,8 @@ from .settings import (
     set_enabled,
     set_targets,
 )
+from .manifest import Manifest
+from .platforms import PlatformInfo, running_in_wsl
 from .versions.activate import is_in_use, rollback, use
 from .versions.layout import Layout
 from .versions.update import update

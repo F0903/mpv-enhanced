@@ -6,8 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mpv_enhanced.cli import _finish_interpolation
-from mpv_enhanced.manifest import Manifest
-from mpv_enhanced.settings import (
+from mpv_enhanced.interpolation.settings import (
     SETTINGS,
     load_settings,
     reconcile_targets,
@@ -15,6 +14,7 @@ from mpv_enhanced.settings import (
     set_enabled,
     set_targets,
 )
+from mpv_enhanced.manifest import Manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 

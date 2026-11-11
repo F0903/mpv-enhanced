@@ -6,16 +6,16 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from mpv_enhanced.benchmark import (
+from mpv_enhanced.cli import main
+from mpv_enhanced.downloads import bar
+from mpv_enhanced.install.installer import INSTALL_INFO
+from mpv_enhanced.interpolation.benchmark import (
     measure_choice,
     mpv_command,
     run_benchmark,
 )
-from mpv_enhanced.cli import main
-from mpv_enhanced.downloads import bar
-from mpv_enhanced.install.installer import INSTALL_INFO
+from mpv_enhanced.interpolation.settings import SETTINGS, load_settings, save_settings
 from mpv_enhanced.platforms import PlatformInfo
-from mpv_enhanced.settings import SETTINGS, load_settings, save_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = PlatformInfo("windows", "x86_64")

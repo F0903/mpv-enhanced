@@ -11,9 +11,9 @@ from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 
-from .install.installer import INSTALL_INFO
-from .manifest import InterpolationOptions
-from .platforms import PlatformInfo
+from ..install.installer import INSTALL_INFO
+from ..manifest import InterpolationOptions
+from ..platforms import PlatformInfo
 from .settings import NO_METHOD
 
 USABLE_MARGIN = 1.1
